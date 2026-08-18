@@ -105,7 +105,8 @@ func serve(args []string) error {
 	}
 	defer func() { _ = runtime.Remove() }()
 
-	httpServer := &http.Server{Handler: server.New(bound, string(who))}
+	panel := server.NewPanel(defaultRoot(), scanpkg.CLI)
+	httpServer := &http.Server{Handler: server.New(bound, string(who), panel)}
 	errs := make(chan error, 1)
 	go func() {
 		err := httpServer.Serve(listener)

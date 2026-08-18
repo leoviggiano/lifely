@@ -25,9 +25,13 @@ type Health struct {
 }
 
 // New returns the panel's handler. port and owner describe the running
-// daemon and are reported by /healthz.
-func New(port int, owner string) http.Handler {
+// daemon and are reported by /healthz. panel may be nil, which serves only
+// /healthz -- useful for a smoke test that should not touch the sources.
+func New(port int, owner string, panel *Panel) http.Handler {
 	mux := http.NewServeMux()
+	if panel != nil {
+		panel.Routes(mux)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, Health{
 			Status:  "ok",

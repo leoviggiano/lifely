@@ -26,7 +26,7 @@ func TestLoopbackOnly(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 			req.Host = tt.host
 			rec := httptest.NewRecorder()
-			New(7777, "manual").ServeHTTP(rec, req)
+			New(7777, "manual", nil).ServeHTTP(rec, req)
 			if rec.Code != tt.want {
 				t.Errorf("Host %q = %d, want %d", tt.host, rec.Code, tt.want)
 			}
@@ -38,7 +38,7 @@ func TestHealthz(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	req.Host = "127.0.0.1:7777"
 	rec := httptest.NewRecorder()
-	New(7777, "tribunal").ServeHTTP(rec, req)
+	New(7777, "tribunal", nil).ServeHTTP(rec, req)
 
 	var got Health
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
