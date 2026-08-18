@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -214,7 +215,7 @@ func scanCmd(args []string) error {
 		}
 		fmt.Printf("\n%s (%d)\n", groupLabel[g], len(inGroup))
 		for _, p := range inGroup {
-			fmt.Printf("  %-48s %s\n", trim(p.Title, 48), p.Source)
+			fmt.Printf("  %s %s\n", pad(trim(p.Title, 48), 48), p.Source)
 		}
 	}
 
@@ -229,10 +230,10 @@ func printSources(sources []scanpkg.SourceState) {
 	fmt.Print("\nFONTES\n")
 	for _, s := range sources {
 		if s.Err != "" {
-			fmt.Printf("  %-30s ILEGIVEL: %s\n", s.Name, s.Err)
+			fmt.Printf("  %s ILEGIVEL: %s\n", pad(s.Name, 30), s.Err)
 			continue
 		}
-		fmt.Printf("  %-30s %d\n", s.Name, s.Count)
+		fmt.Printf("  %s %d\n", pad(s.Name, 30), s.Count)
 	}
 }
 
@@ -249,6 +250,18 @@ func defaultRoot() string {
 		return "."
 	}
 	return filepath.Join(home, "projects", "artifacts")
+}
+
+// pad widens a string to n columns counting runes.
+//
+// %-48s pads to a BYTE count, so an accented title -- which this command goes
+// out of its way to truncate by rune -- still comes out misaligned: 20 runes
+// of 25 bytes get 23 spaces instead of 28.
+func pad(s string, n int) string {
+	if d := n - len([]rune(s)); d > 0 {
+		return s + strings.Repeat(" ", d)
+	}
+	return s
 }
 
 // trim truncates by runes, never by bytes: the titles are accented Portuguese,

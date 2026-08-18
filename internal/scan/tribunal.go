@@ -10,6 +10,7 @@ package scan
 import (
 	"bufio"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,7 +109,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				Title:   strings.TrimSpace(title),
 				Detail:  title,
 				Blocks:  faixaBlocker(faixa),
-				Origin:  pendency.Origin{Path: path, Locator: "Faixa " + faixa, Open: "obsidian://open?path=" + path},
+				Origin:  pendency.Origin{Path: path, Locator: "Faixa " + faixa, Open: obsidianURI(path)},
 				Surface: "veredito no FOUNDER.md",
 				SeenAt:  now,
 			}
@@ -163,7 +164,10 @@ func firstSentence(s string) string {
 var terminal = map[string]bool{
 	"aprovada": true, "aprovado": true, "aplicada": true, "aplicado": true,
 	"decidida": true, "decidido": true, "concluida": true, "concluido": true,
-	"concluída": true, "concluído": true, "decisão": true,
+	// Only past-participle states belong here. "decisão" was added by reflex
+	// and removed on review: it is the noun for the artifact, not a state, and
+	// a row whose status column literally reads "decisão" is open, not closed.
+	"concluída": true, "concluído": true,
 	"cancelada": true, "cancelado": true, "desistida": true, "desistiu": true,
 	"rejeitada": true, "rejeitado": true, "arquivada": true, "arquivado": true,
 }
@@ -174,7 +178,15 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // an unreadable branch is reported by its own source
+			// A directory we cannot walk is a finding, not a shrug: this is
+			// the only sweep that discovers files, so nothing else would ever
+			// report it (NFR6).
+			rel, _ := filepath.Rel(root, path)
+			if state.Err != "" {
+				state.Err += "; "
+			}
+			state.Err += rel + ": " + err.Error()
+			return nil
 		}
 		if d.IsDir() {
 			// sessions/ is append-only history, and .git is not a source.
@@ -251,7 +263,7 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 			Title:   describe(header, cells),
 			Detail:  line,
 			Blocks:  pendency.Founder,
-			Origin:  pendency.Origin{Path: path, Locator: key, Open: "obsidian://open?path=" + path},
+			Origin:  pendency.Origin{Path: path, Locator: key, Open: obsidianURI(path)},
 			Surface: surfaceFor(rel),
 			SeenAt:  now,
 		})
@@ -347,10 +359,19 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 		Source:  "sessions/" + latest,
 		Title:   "Pendências que atravessam a rodada de " + latest,
 		Blocks:  pendency.Hygiene,
-		Origin:  pendency.Origin{Path: path, Locator: latest, Open: "obsidian://open?path=" + path},
+		Origin:  pendency.Origin{Path: path, Locator: latest, Open: obsidianURI(path)},
 		Surface: "leitura do summary",
 		SeenAt:  now,
 	}}, state
+}
+
+// obsidianURI builds the link that opens a file in Obsidian.
+//
+// The path has to be percent-encoded: accented filenames are the norm in this
+// record repository, and a raw path with a space or an accent produces a URI
+// the app silently refuses to open.
+func obsidianURI(path string) string {
+	return "obsidian://open?path=" + url.QueryEscape(path)
 }
 
 // carriesForward reports whether a session summary leaves something open.
@@ -391,7 +412,7 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 			Source:  e.Name(),
 			Title:   "Pauta em aberto: " + e.Name(),
 			Blocks:  pendency.Founder,
-			Origin:  pendency.Origin{Path: path, Open: "obsidian://open?path=" + path},
+			Origin:  pendency.Origin{Path: path, Open: obsidianURI(path)},
 			Surface: "o arquivo de pauta",
 			SeenAt:  now,
 		})
@@ -472,7 +493,7 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 			Title:   strings.TrimSpace(m + " " + excerpt(rest)),
 			Detail:  text,
 			Blocks:  pendency.Founder,
-			Origin:  pendency.Origin{Path: path, Locator: heading + ":" + strconv.Itoa(line), Open: "obsidian://open?path=" + path},
+			Origin:  pendency.Origin{Path: path, Locator: heading + ":" + strconv.Itoa(line), Open: obsidianURI(path)},
 			Surface: "emenda no life.md, pelo tribunal",
 			SeenAt:  now,
 		})
