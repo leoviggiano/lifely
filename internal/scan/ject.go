@@ -2,6 +2,7 @@ package scan
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,10 +24,25 @@ import (
 // decisions below (spec FR1.2, A7).
 type Runner func(args ...string) ([]byte, error)
 
-// CLI runs the real binary.
+// CLI runs the real binary, under a deadline.
+//
+// The sweep runs on every request and fans out one subprocess per open ticket.
+// Without a deadline, a single hung `ject` would hang the panel for as long as
+// the operating system lets it -- and the founder would see a page that never
+// finishes loading, with nothing to tell him why.
 func CLI(args ...string) ([]byte, error) {
-	return exec.Command("ject", args...).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ject", args...).Output()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("ject %s: %w", strings.Join(args, " "), ctx.Err())
+	}
+	return out, err
 }
+
+// cliTimeout bounds a single ject call. Generous for a healthy binary, short
+// enough that a hung one shows up as a marked source instead of a blank page.
+const cliTimeout = 10 * time.Second
 
 type project struct {
 	Slug           string `json:"slug"`
