@@ -3,6 +3,7 @@ package scan
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -85,5 +86,43 @@ func TestNonRepositoryRootIsNotAFinding(t *testing.T) {
 		if s.Name == "git status" && s.Err != "" {
 			t.Errorf("a non-repository root was reported as unreadable: %q", s.Err)
 		}
+	}
+}
+
+// A ledger that breaks partway through still told us about everything above
+// the break. Returning nil on a scanner error undid the preservation this
+// scanner does deliberately -- one bad line would hide every open decision
+// above it.
+func TestLedgerKeepsRowsReadBeforeAFailure(t *testing.T) {
+	root := t.TempDir()
+	// A very long line blows the scanner's token limit partway through.
+	huge := strings.Repeat("x", 5*1024*1024)
+	body := "# id\ttitulo\tstatus\n" +
+		"A\tprimeira\tpendente\n" +
+		"B\tsegunda\tpendente\n" +
+		"C\t" + huge + "\tpendente\n"
+	if err := os.WriteFile(filepath.Join(root, "fila.tsv"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := Tribunal(root)
+	var kept int
+	for _, p := range res.Pendencies {
+		if p.Class == "A2" {
+			kept++
+		}
+	}
+	if kept < 2 {
+		t.Errorf("kept %d rows read before the failure, want at least 2", kept)
+	}
+
+	var reported bool
+	for _, s := range res.Sources {
+		if s.Name == "ledgers *.tsv" && s.Err != "" {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Error("the scanner failure was not reported as a finding")
 	}
 }

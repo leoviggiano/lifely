@@ -226,7 +226,14 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		return nil
 	})
 	if err != nil {
-		state.Err = err.Error()
+		// WalkDir only returns what the callback returns, and the callback
+		// never returns an error -- it records and continues. Keeping a
+		// branch here would clobber the per-file messages accumulated above
+		// with a single generic one.
+		if state.Err != "" {
+			state.Err += "; "
+		}
+		state.Err += err.Error()
 	}
 	state.Count = len(items)
 	return items, state
@@ -282,10 +289,11 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 			SeenAt:  now,
 		})
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	return disambiguate(items, header, rows), nil
+	// Keep what was read before the failure. Returning nil here undid the
+	// preservation this function does two screens above -- a scanner error on
+	// line 900 would hide the 899 open decisions above it.
+	err = sc.Err()
+	return disambiguate(items, header, rows), err
 }
 
 // disambiguate adds a tiebreaker ONLY to rows whose key collides.
