@@ -191,7 +191,7 @@ func scanCmd(args []string) error {
 		return err
 	}
 
-	res := scanpkg.Tribunal(*root)
+	res, _ := scanpkg.All(*root, scanpkg.CLI)
 	if len(res.Pendencies) == 0 {
 		fmt.Println("Nada pendente. As fontes foram varridas agora e nada espera decisao. Zero e resultado.")
 		return nil
