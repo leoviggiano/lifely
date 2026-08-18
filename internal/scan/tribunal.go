@@ -170,9 +170,13 @@ func faixaBlocker(faixa string) pendency.Blocker {
 // is this item called", so it is the key -- and when there is no bold title,
 // the whole line is, because then nothing shorter is safe.
 func boardKey(line string) string {
-	if a := strings.Index(line, "**"); a >= 0 {
-		if b := strings.Index(line[a+2:], "**"); b > 0 {
-			return strings.TrimSpace(line[a+2 : a+2+b])
+	// Only the bold that OPENS the item counts. Taking any bold run in the
+	// line would key `- [ ] fazer X — **urgente** hoje` on "urgente", and two
+	// unrelated items marked urgent would become one.
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "**") {
+		if b := strings.Index(trimmed[2:], "**"); b > 0 {
+			return strings.TrimSpace(trimmed[2 : 2+b])
 		}
 	}
 	return cleanTitle(line)

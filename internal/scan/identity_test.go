@@ -274,3 +274,20 @@ func TestLedgerKeySurvivesANewColumn(t *testing.T) {
 		t.Errorf("a new column changed the row id: %q became %q", before[0].ID, after[0].ID)
 	}
 }
+
+// The key is the bold title that OPENS the item, not any bold run in the line:
+// `- [ ] fazer X — **urgente** hoje` names an item called "fazer X".
+func TestBoardKeyUsesTheOpeningBoldOnly(t *testing.T) {
+	root := t.TempDir()
+	body := "## Faixa 1\n\n- [ ] fazer a migracao — **urgente** ate sexta\n- [ ] revisar o portao — **urgente** tambem\n"
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 2 {
+		t.Fatalf("got %d items, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("two different items keyed on the same inline bold: %q", got[0].ID)
+	}
+}
