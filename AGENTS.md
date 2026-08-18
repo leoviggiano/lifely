@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.15 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.16 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -69,10 +69,18 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      fundador independente da classe do achado. E quatro regras maduras do
      dia: sigla não se expande por inferência (e citar não absolve de fonte
      errada); screenshot não é medição de layout; checks-passed = "olhe o
-     fixes[] antes de mergear". -->
+     fixes[] antes de mergear".
+     v2.16 · 18-08-2026 — lote das regras do dia da campanha lifely, todas
+     com caso-fonte: escalação de lacuna é tribunal-primeiro pelo canal
+     (nunca prompt direto ao fundador; limites da conversa viva e da porta
+     de entrada escritos; trava de prompt >10 min reporta ao canal);
+     ticket nasce inteiro (encomenda em specs/ + corpo do ticket.md, sem
+     placeholder sobrevivente); decisão pendente do fundador mora em
+     decisoes.md padronizado (template ject-decisao-pendente). -->
+
 ## ject — este repositório é rastreado
 
-O trabalho aqui é rastreado pelo **ject**: cada ticket é um diretório
+O trabalho aqui é rastreado pelo **ject** (projeto `lifely`): cada ticket é um diretório
 de Markdown/YAML num vault do Obsidian, e **o vault é a fonte de verdade única**.
 O binário `ject` decide status, locks, próximos passos e formato de relatório.
 Invoque comandos e apresente o que eles imprimem — não reimplemente o que um
@@ -258,6 +266,30 @@ existe para eliminar.
 - Emenda em template só existe quando instalada: quem emenda fecha a rodada
   com `ject-registry.sh install` nos repos ativos — template à frente do
   instalado é bug, não estado normal.
+- **Escalação de LACUNA/PENDÊNCIA vai ao tribunal pelo canal, SEMPRE
+  primeiro** (18-08, caso lifely) — nunca direto ao fundador, e **nunca por
+  pergunta interativa (selection box) sem ter passado pelo canal antes**:
+  prompt pendente não é desfazível pelo canal (fato observado: ordem de
+  retirada não desfez prompt; 40+ min até o clique). Três limites escritos:
+  a porta de entrada do ject ("Usar o ject nesta sessão?") não é escalação
+  — fica; **a conversa viva com o fundador na própria sessão é do dono da
+  sessão** (o que o registro reservou a ele — 2.5.13 aprovação de plano,
+  cinco classes — vai a ele DIRETO, com a fonte citada na pergunta); e
+  prompt disparado ao fundador sem resposta por ~10 min → reporte a trava
+  ao canal (o prompt fica; a espera deixa de ser invisível ao plantão).
+- **Ticket nasce inteiro no ato da criação** (18-08, achados do fundador):
+  encomenda em `specs/encomenda-fundador.md` quando nasce de
+  veredito/encomenda (template `ject-encomenda-ticket.md` v1.1) **e o corpo
+  do `ticket.md` preenchido** (Objective/Description/DoD — placeholder do
+  esqueleto não sobrevive à criação; substância só em specs/context deixa o
+  ticket parecendo vazio no vault).
+- **Decisão pendente do FUNDADOR ganha `decisoes.md` na raiz do ticket**
+  (template `ject-decisao-pendente.md`; caso-fonte bot-048, 18-08): um
+  bloco por decisão — o-que-se-decide · contexto com registro · opções com
+  custo · recomendação visível · classe · campo Decisão vazio até a palavra
+  dele. Prosa no context.md não é fila de decisão; é este arquivo que a
+  Mesa do lifely lê como "esperando o fundador". Bloco decidido nunca se
+  apaga — ganha a palavra e a data.
 - Aprovação relatada por outra sessão não responde pergunta que está pendente
   com o dono: o caminho é o registro durável (bancada/vault) — leia a fonte
   escrita e cite-a. Relato de par não autoriza, e silêncio não é convergência.
