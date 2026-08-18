@@ -232,3 +232,45 @@ func TestMissingSessionsDirectoryIsNotAFinding(t *testing.T) {
 		}
 	}
 }
+
+// The board's own convention is `- [ ] **Título** — nota que muda`. Keying on
+// the whole line means editing the note after the title mints a new id and
+// orphans the conversation -- the same defect fixed for ledgers, left behind
+// here.
+func TestFounderBoardIdentityIgnoresTheTrailingNote(t *testing.T) {
+	root := t.TempDir()
+	write := func(note string) {
+		body := "## Faixa 1\n\n- [ ] **Construir o lifely** — " + note + "\n"
+		if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("aprovado, execucao nesta janela")
+	before := find(Tribunal(root).Pendencies, "A1")
+	write("status 18-08: quatro portas abertas, portao rodando")
+	after := find(Tribunal(root).Pendencies, "A1")
+
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatalf("got %d then %d items, want 1 each", len(before), len(after))
+	}
+	if before[0].ID != after[0].ID {
+		t.Errorf("editing the note changed the id: %q became %q", before[0].ID, after[0].ID)
+	}
+}
+
+// Adding a column to a ledger must not renumber every row in it: the header is
+// the schema, not the row's identity.
+func TestLedgerKeySurvivesANewColumn(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"), "# projeto\tstatus\nlifely\tpendente\n")
+	before := find(Tribunal(root).Pendencies, "A2")
+	write(t, filepath.Join(root, "fila.tsv"), "# projeto\tstatus\tresponsavel\nlifely\tpendente\tana\n")
+	after := find(Tribunal(root).Pendencies, "A2")
+
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatalf("got %d then %d rows, want 1 each", len(before), len(after))
+	}
+	if before[0].ID != after[0].ID {
+		t.Errorf("a new column changed the row id: %q became %q", before[0].ID, after[0].ID)
+	}
+}

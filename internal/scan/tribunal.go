@@ -117,7 +117,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				// below an insertion and orphans those conversations. And the
 				// title goes in whole, because truncating for display and then
 				// keying on the truncation collapsed two long items into one.
-				ID:      pendency.NewID("founder", "f"+faixa+"-"+pendency.Slug(cleanTitle(title))),
+				ID:      pendency.NewID("founder", "f"+faixa+"-"+pendency.Slug(boardKey(title))),
 				Class:   "A1",
 				Source:  "FOUNDER.md",
 				Title:   strings.TrimSpace(title),
@@ -162,6 +162,22 @@ func faixaBlocker(faixa string) pendency.Blocker {
 
 // cleanTitle strips the markdown noise without shortening: identity needs the
 // whole thing, so that two items are only ever the same item.
+// boardKey returns the part of a board line that names the item.
+//
+// The board's convention is `**Título** — nota que envelhece`. Keying on the
+// whole line made every note edit mint a new id; keying on a truncation made
+// two long items collapse. The bold title is the source's own answer to "what
+// is this item called", so it is the key -- and when there is no bold title,
+// the whole line is, because then nothing shorter is safe.
+func boardKey(line string) string {
+	if a := strings.Index(line, "**"); a >= 0 {
+		if b := strings.Index(line[a+2:], "**"); b > 0 {
+			return strings.TrimSpace(line[a+2 : a+2+b])
+		}
+	}
+	return cleanTitle(line)
+}
+
 func cleanTitle(s string) string {
 	return strings.TrimSpace(strings.ReplaceAll(s, "*", ""))
 }
@@ -401,7 +417,9 @@ func naturalKey(header, cells []string) string {
 	if len(cells) > 0 {
 		first = strings.TrimSpace(cells[0])
 	}
-	return pendency.LocationKey(strings.Join(header, "\t"), first)
+	// The header is the schema, not the row's identity: folding it in meant
+	// adding a column renumbered every row in the file.
+	return pendency.LocationKey("ledger-row", first)
 }
 
 // looksLikeDate spots a timestamp cell, which must never carry identity: it
