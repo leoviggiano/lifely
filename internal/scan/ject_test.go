@@ -289,3 +289,56 @@ func TestDetailErrorIsNotSmearedAcrossProjects(t *testing.T) {
 		}
 	}
 }
+
+// A failed detail read must not publish "no dependencies" into the graph.
+//
+// The queue computes readiness from that map, so a zero value stored on
+// failure is an absence of information dressed as a fact -- the same shape as
+// the --limit 20 this file already paid for.
+func TestGraphOmitsTicketsWhoseDetailFailed(t *testing.T) {
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			return []byte(`{"tickets":[{"id":"x-1","project":"p","title":"t","status":"ready"}]}`), nil
+		}
+		return nil, os.ErrPermission
+	}
+	_, _, graph := Ject(run, time.Now())
+	if _, present := graph["x-1"]; present {
+		t.Error("the graph recorded dependencies for a ticket whose detail could not be read")
+	}
+}
+
+// When the sweep runs out of budget, the projects it never reached still get a
+// line -- otherwise they vanish from the panel exactly when it is least able
+// to explain why. Same failure as the --limit 20, one layer up.
+func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
+	original := sweepBudget
+	sweepBudget = time.Nanosecond // exhausted before the first ticket
+	t.Cleanup(func() { sweepBudget = original })
+
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			return []byte(`{"tickets":[
+				{"id":"a-1","project":"alfa","title":"t","status":"ready"},
+				{"id":"b-1","project":"beta","title":"t","status":"ready"}]}`), nil
+		}
+		return []byte(`{"id":"a-1","dependencies":[]}`), nil
+	}
+
+	_, states, _ := Ject(run, time.Now())
+
+	seen := map[string]string{}
+	for _, s := range states {
+		seen[s.Name] = s.Err
+	}
+	for _, want := range []string{"ject:alfa", "ject:beta"} {
+		msg, present := seen[want]
+		if !present {
+			t.Errorf("%s vanished from the panel when the budget ran out", want)
+			continue
+		}
+		if !strings.Contains(msg, "interrompida") {
+			t.Errorf("%s was listed without saying the sweep was cut: %q", want, msg)
+		}
+	}
+}

@@ -40,8 +40,9 @@ func CLI(args ...string) ([]byte, error) {
 	return out, err
 }
 
-// sweepBudget bounds the whole ject sweep, however many tickets it finds.
-const sweepBudget = 8 * time.Second
+// sweepBudget bounds the whole ject sweep, however many tickets it finds. It
+// is a variable so a test can make exhaustion happen instead of describing it.
+var sweepBudget = 8 * time.Second
 
 // cliTimeout bounds a single ject call. Generous for a healthy binary, short
 // enough that a hung one shows up as a marked source instead of a blank page.
@@ -113,21 +114,39 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 
 	byProject := map[string]int{}
 	detailErrs := map[string]string{}
+	unvisited := map[string]bool{}
 	budgetErr := ""
 	var decisionItems []pendency.Pendency
 	decisionCount := 0
 
-	for _, t := range recent.Tickets {
+	for i, t := range recent.Tickets {
 		if terminalStatus[t.Status] {
 			continue
 		}
 		if time.Now().After(deadline) {
-			// Say what was cut. A truncated sweep that stays quiet is the
-			// same failure as the --limit 20 this file already paid for.
-			budgetErr = fmt.Sprintf("varredura interrompida no orcamento de %s; %d tickets nao foram detalhados", sweepBudget, len(recent.Tickets)-len(items))
+			// Say what was cut, and count only what would have been shown --
+			// recent.Tickets includes the terminal ones this loop skips.
+			// A truncated sweep that stays quiet is the same failure as the
+			// --limit 20 this file already paid for.
+			left := 0
+			for _, rest := range recent.Tickets[i:] {
+				if !terminalStatus[rest.Status] {
+					left++
+					// And the projects we never reached still get a line, so
+					// they do not vanish from the panel along with the budget.
+					unvisited["ject:"+rest.Project] = true
+				}
+			}
+			budgetErr = fmt.Sprintf("varredura interrompida no orcamento de %s; %d tickets abertos nao foram detalhados", sweepBudget, left)
 			break
 		}
 		detail, derr := showTicket(run, t.ID)
+		if derr == nil {
+			// Only record a graph edge set we actually read. Storing the zero
+			// value on failure would publish "no dependencies" as a fact, and
+			// the queue computes readiness from this map.
+			graph[t.ID] = detail.Dependencies
+		}
 		if derr != nil {
 			// And it changes the ANSWER, not just the log: a ticket whose
 			// detail we could not read has unknown dependencies, and the queue
@@ -138,8 +157,6 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 			}
 			detailErrs[key] += derr.Error()
 		}
-		graph[t.ID] = detail.Dependencies
-
 		items = append(items, pendency.Pendency{
 			// The ticket id is the most stable natural key a source can offer.
 			ID:      pendency.NewID("ject:"+t.Project, t.ID),
@@ -163,9 +180,14 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	items = append(items, decisionItems...)
 	// Deterministic order: Go randomises map iteration, and a panel whose
 	// source list reshuffles on every sweep reads as if something changed.
-	names := make([]string, 0, len(byProject))
+	names := make([]string, 0, len(byProject)+len(unvisited))
 	for name := range byProject {
 		names = append(names, name)
+	}
+	for name := range unvisited {
+		if _, seen := byProject[name]; !seen {
+			names = append(names, name)
+		}
 	}
 	sort.Strings(names)
 	for _, name := range names {
