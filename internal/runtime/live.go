@@ -117,6 +117,13 @@ func sameProgram(observed, self string) bool {
 	return false
 }
 
+// probeAlive reports whether the pid is still running at all, regardless of
+// what program it is. Used by tests that need to assert we left a process
+// alone.
+func (m Marker) probeAlive() bool {
+	return m.probe() != identityGone
+}
+
 // Live reports whether the marker still describes a running lifely.
 //
 // A marker outlives a crash, and the OS recycles pids -- so liveness alone is
@@ -201,6 +208,15 @@ func removeIfUnchanged(seen Marker) error {
 // an explicit flag on purpose: signalling a process you cannot identify is a
 // last resort, not a fallback.
 func (m Marker) ForceStop() error {
+	// NEVER signal a process we have identified as somebody else's.
+	//
+	// The escape hatch exists for the pid we could not identify, where a human
+	// looked and decided. For a pid we CAN identify as foreign, signalling is
+	// the exact bug this package spends four functions preventing -- so the
+	// force path only clears the stale marker and leaves the stranger alone.
+	if m.probe() == identityForeign {
+		return removeIfUnchanged(m)
+	}
 	proc, err := os.FindProcess(m.PID)
 	if err != nil {
 		return err

@@ -105,29 +105,42 @@ func Claim(m Marker) error {
 	if err != nil {
 		return err
 	}
-	// Marshal BEFORE creating the file: with O_EXCL the file becomes visible
-	// the instant it exists, so anything done between create and write is a
-	// window where a reader sees a zero-length marker and calls it corrupt --
-	// and the healing path would then delete the registration of a daemon
-	// that is coming up right now. (The window is too narrow for a test to
-	// observe reliably; the ordering is the guarantee, not the assertion.)
 	data, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+
+	// Write a complete file somewhere else, then LINK it into place.
+	//
+	// O_CREATE|O_EXCL alone gives exclusivity but not atomicity: the file
+	// exists, empty, between the create and the write, and a reader landing
+	// there sees a zero-length marker, calls it corrupt, and the healing path
+	// deletes the registration of a daemon that is coming up right now.
+	// os.Link fails with EEXIST if the name is taken, so this is both -- one
+	// winner, and never a half-written marker on disk.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".claim-*.json")
 	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Link(tmp.Name(), path); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return ErrAlreadyRunning
 		}
 		return err
 	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		_ = os.Remove(path)
-		return err
-	}
-	return f.Close()
+	return nil
 }
 
 // ErrAlreadyRunning reports that another daemon holds the marker.

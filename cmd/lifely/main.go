@@ -238,13 +238,17 @@ func stop(args []string) error {
 		}
 		*owner = string(runtime.OwnerManual)
 	}
-	asker, err := parseOwner(*owner)
-	if err != nil {
-		return err
+	asker, perr := parseOwner(*owner)
+	if perr != nil {
+		return perr
 	}
 
-	live, ok := runtime.Running()
-	if !ok {
+	// Peek, not Running(): Running() answers "is a daemon up?" and hides a
+	// stale marker behind a false. `stop` has to be able to SEE that marker --
+	// otherwise the foreign and gone branches below are unreachable and
+	// `--force` has nothing to act on.
+	live, err := runtime.Peek()
+	if err != nil {
 		fmt.Println("lifely nao esta de pe")
 		return nil
 	}

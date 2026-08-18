@@ -316,3 +316,32 @@ func TestClaimNeverPublishesAnEmptyMarker(t *testing.T) {
 		t.Errorf("Read() = %+v, want %+v", got, want)
 	}
 }
+
+// The escape hatch must not become the bug it was built beside.
+//
+// --force exists for a pid we could NOT identify, where a human looked and
+// decided. For a pid we CAN identify as somebody else's, signalling it is the
+// exact failure this package spends four functions preventing: ForceStop
+// clears the stale marker and leaves the stranger running.
+func TestForceStopNeverSignalsAnIdentifiedStranger(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	pid := stranger(t)
+	m := Marker{PID: pid, Port: 7777, Owner: OwnerManual}
+	if err := Write(m); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.ForceStop(); err != nil {
+		t.Fatalf("ForceStop() = %v", err)
+	}
+	// The marker is gone...
+	if _, err := Read(); err != ErrNoMarker {
+		t.Errorf("the stale marker survived: %v", err)
+	}
+	// ...and the stranger is still alive.
+	if !(Marker{PID: pid}).probeAlive() {
+		t.Error("ForceStop killed a process it had identified as somebody else's")
+	}
+}
