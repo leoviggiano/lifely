@@ -192,7 +192,7 @@ func scanCmd(args []string) error {
 		return err
 	}
 
-	res := scanpkg.Tribunal(*root)
+	res, _ := scanpkg.All(*root, scanpkg.CLI)
 	if len(res.Pendencies) == 0 {
 		fmt.Println("Nothing pending. The sources were swept just now and nothing awaits a decision. Zero is a result.")
 		// Zero pendencies must never hide a source that could not be read:

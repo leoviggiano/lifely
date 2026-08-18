@@ -734,3 +734,15 @@ func cut(s string, n int) string {
 	}
 	return string(r[:n])
 }
+
+// All sweeps every source lifely knows: the record repository and the ject
+// vaults. The graph comes back with it, because the queue's "blocked" state is
+// computed from dependencies and is not a property of any single ticket.
+func All(root string, run Runner) (Result, map[string][]string) {
+	res := Tribunal(root)
+	items, states, graph := Ject(run, res.At)
+	res.Pendencies = append(res.Pendencies, items...)
+	res.Sources = append(res.Sources, states...)
+	pendency.Sort(res.Pendencies)
+	return res, graph
+}
