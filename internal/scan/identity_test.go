@@ -81,3 +81,52 @@ func TestFounderBoardItemsWithTheSameOpeningDoNotCollide(t *testing.T) {
 		t.Errorf("two distinct items share the id %q -- one of them disappears", got[0].ID)
 	}
 }
+
+// Inserting an item at the top of the board must not renumber everyone below.
+//
+// The first fix for id collisions put a file-wide counter into the identity,
+// which encodes POSITION -- so adding one line orphaned every conversation
+// under it. Truncation belongs to display, never to identity.
+func TestFounderBoardIdentitySurvivesInsertion(t *testing.T) {
+	root := t.TempDir()
+	board := "## Faixa 1\n\n- [ ] **Decidir E18**\n- [ ] **Auditoria amostral**\n"
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(board), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]bool{}
+	for _, p := range find(Tribunal(root).Pendencies, "A1") {
+		before[p.ID] = true
+	}
+	if len(before) != 2 {
+		t.Fatalf("got %d items, want 2", len(before))
+	}
+
+	// Somebody adds an item above the others.
+	inserted := "## Faixa 1\n\n- [ ] **Item novo no topo**\n- [ ] **Decidir E18**\n- [ ] **Auditoria amostral**\n"
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(inserted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range find(Tribunal(root).Pendencies, "A1") {
+		if strings.Contains(p.Title, "novo no topo") {
+			continue
+		}
+		if !before[p.ID] {
+			t.Errorf("inserting a line changed the id of %q to %q", p.Title, p.ID)
+		}
+	}
+}
+
+// Two long items that differ only after the display truncation must still be
+// two pendencies.
+func TestFounderBoardLongTitlesDoNotCollide(t *testing.T) {
+	long := strings.Repeat("a", 95)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"),
+		[]byte("## Faixa 1\n\n- [ ] **"+long+"X**\n- [ ] **"+long+"Y**\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 2 || got[0].ID == got[1].ID {
+		t.Errorf("long titles collapsed into one id: %+v", got)
+	}
+}

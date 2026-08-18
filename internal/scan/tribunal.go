@@ -79,7 +79,6 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 
 	var items []pendency.Pendency
 	var faixa string
-	var seen int
 	var current *pendency.Pendency
 
 	flush := func() {
@@ -105,13 +104,14 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 			// open work, and dropping it hides the very detail that a board
 			// uses indentation to express.
 			flush()
-			seen++
 			title := strings.TrimPrefix(strings.TrimLeft(line, " "), "- [ ] ")
 			p := pendency.Pendency{
-				// Lane and position join the identity: firstSentence truncates
-				// at 90 runes, so two long items that open alike would collapse
-				// into one -- and one of them would vanish from the panel.
-				ID:      pendency.NewID("founder", pendency.Slug(firstSentence(title))+"-"+faixa+"-"+strconv.Itoa(seen)),
+				// Identity uses the WHOLE title; firstSentence truncates at 90
+				// runes for display, and letting that reach the id made two
+				// long items collapse into one. Position must NOT join the id:
+				// a counter would renumber every item below an insertion and
+				// orphan their conversations.
+				ID:      pendency.NewID("founder", pendency.Slug(cleanTitle(title))),
 				Class:   "A1",
 				Source:  "FOUNDER.md",
 				Title:   strings.TrimSpace(title),
@@ -152,6 +152,12 @@ func faixaBlocker(faixa string) pendency.Blocker {
 		return pendency.Founder
 	}
 	return pendency.AI
+}
+
+// cleanTitle strips the markdown noise without shortening: identity needs the
+// whole thing, so that two items are only ever the same item.
+func cleanTitle(s string) string {
+	return strings.TrimSpace(strings.ReplaceAll(s, "*", ""))
 }
 
 func firstSentence(s string) string {
@@ -308,9 +314,15 @@ func naturalKey(header, cells []string) string {
 	if title := namingCell(header, cells); title != "" {
 		return pendency.Slug(title)
 	}
-	// Fall back to WHERE the row is, not to what it currently says: the first
-	// column is the closest thing a headerless ledger has to a key.
-	return pendency.LocationKey(strings.Join(header, "\t"), firstNonEmpty(cells))
+	// No naming column: key on the row's FIRST column, whatever it holds. It
+	// is the closest thing a ledger without a title has to a key, and unlike
+	// "the first non-empty cell" it does not wander to a note or a date when
+	// the first column happens to be blank.
+	first := ""
+	if len(cells) > 0 {
+		first = strings.TrimSpace(cells[0])
+	}
+	return pendency.LocationKey(strings.Join(header, "\t"), first)
 }
 
 // namingCell returns the first cell that plausibly names the row: a title-ish
@@ -330,30 +342,6 @@ func namingCell(header, cells []string) string {
 	// next" is a volatile column by another name -- notes, dates and counters
 	// all live to the right, and any of them would tie the identity to a value
 	// that changes when the row is merely touched.
-	return ""
-}
-
-// looksLikeDate keeps timestamps out of the identity: they change on every
-// touch of the row.
-func looksLikeDate(v string) bool {
-	if len(v) < 8 {
-		return false
-	}
-	digits := 0
-	for _, r := range v {
-		if r >= '0' && r <= '9' {
-			digits++
-		}
-	}
-	return digits >= 6
-}
-
-func firstNonEmpty(cells []string) string {
-	for _, c := range cells {
-		if v := strings.TrimSpace(c); v != "" {
-			return v
-		}
-	}
 	return ""
 }
 
