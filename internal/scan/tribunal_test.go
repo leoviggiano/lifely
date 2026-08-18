@@ -4,7 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/leoviggiano/lifely/internal/pendency"
 )
@@ -47,7 +49,8 @@ Texto normal sem marcador.
 [ABERTO] teto percentual emendaria o §15.1?
 `)
 	write(t, filepath.Join(root, "pauta-ferramentas.md"), "pauta\n")
-	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"), "resumo\n")
+	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"),
+		"# Sessao\n\n## Pendente\n\nfalta o veredito do fundador.\n")
 	return root
 }
 
@@ -199,5 +202,93 @@ func TestLifeMarkerTitleIsNotDoubled(t *testing.T) {
 	}
 	if want := "[ABERTO] teto percentual emendaria o §15.1?"; got[0].Title != want {
 		t.Errorf("title = %q, want %q", got[0].Title, want)
+	}
+}
+
+// Titles here are accented Portuguese. Cutting by bytes lands inside a
+// multi-byte rune and renders as a replacement character -- visible in the
+// real sweep output before the gate named it.
+func TestTruncationCutsRunesNotBytes(t *testing.T) {
+	long := strings.Repeat("ç", 200)
+	for name, got := range map[string]string{
+		"excerpt":       excerpt(long),
+		"firstSentence": firstSentence(long),
+	} {
+		if strings.ContainsRune(got, '\uFFFD') {
+			t.Errorf("%s produced a broken rune", name)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("%s produced invalid utf-8", name)
+		}
+	}
+}
+
+// A ledger row whose status cell is empty or missing is NOT decided: hiding a
+// decision that is still waiting is the failure this scanner refuses.
+func TestEmptyStatusCountsAsOpen(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"), "# id\ttitulo\tstatus\nX1\tsem status\t\nX2\ttruncada\n")
+	got := find(Tribunal(root).Pendencies, "A2")
+	if len(got) != 2 {
+		t.Fatalf("got %d open rows, want 2 (empty and missing status are both open)", len(got))
+	}
+}
+
+// The panel must be able to reach zero: "nada pendente" is a result. A summary
+// that closed clean is not a pendency.
+func TestCleanSummaryIsNotAPendency(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"),
+		"# Sessao\n\n## Entregue\n\nTudo fechado.\n")
+	if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 0 {
+		t.Errorf("a summary with nothing open produced %d pendencies", len(got))
+	}
+
+	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"),
+		"# Sessao\n\n## Pendente\n\nfalta o veredito.\n")
+	if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 1 {
+		t.Errorf("a summary that carries something forward produced %d pendencies, want 1", len(got))
+	}
+}
+
+// An item under a heading that is not a Faixa must not inherit the previous
+// lane's blocker.
+func TestFaixaDoesNotLeakAcrossSections(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"), `## Faixa 1
+
+- [ ] **Decidir E18**
+
+## Rodape
+
+- [ ] **Item de outra secao**
+`)
+	for _, p := range find(Tribunal(root).Pendencies, "A1") {
+		if strings.Contains(p.Title, "outra secao") && p.Blocks == pendency.Founder {
+			t.Error("an item outside a Faixa inherited the founder lane")
+		}
+	}
+}
+
+// A broken ledger must say WHICH file broke, and must not erase the report of
+// another one that broke before it.
+func TestLedgerErrorNamesTheFile(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "bom.tsv"), "# id\tstatus\nA\tpendente\n")
+	bad := filepath.Join(root, "ruim.tsv")
+	write(t, bad, "# id\tstatus\n")
+	if err := os.Chmod(bad, 0o000); err != nil {
+		t.Skipf("cannot make a file unreadable here: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bad, 0o644) })
+
+	var reported string
+	for _, s := range Tribunal(root).Sources {
+		if s.Name == "ledgers *.tsv" {
+			reported = s.Err
+		}
+	}
+	if !strings.Contains(reported, "ruim.tsv") {
+		t.Errorf("the ledger error did not name the file: %q", reported)
 	}
 }

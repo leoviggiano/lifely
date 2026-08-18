@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.16 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.18 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -283,6 +283,23 @@ existe para eliminar.
   do `ticket.md` preenchido** (Objective/Description/DoD — placeholder do
   esqueleto não sobrevive à criação; substância só em specs/context deixa o
   ticket parecendo vazio no vault).
+- **Um ticket por conversa** (18-08, pedido do fundador): ao fechar um
+  ticket — `ject session finish` rodado e relatório ESCRITO — a conversa
+  se encerra ou se limpa (`/clear`); o próximo ticket nasce de
+  `ject start` fresco. A ordem é inegociável: relatório primeiro, limpeza
+  depois — limpar antes de escrever perde o que ainda não virou arquivo.
+  Contexto vem do vault, nunca de sobra de conversa (é a tese do 15.4);
+  a saga de UM ticket (rodadas de portão, fixes) permanece na mesma
+  conversa até ele fechar.
+- **Mensagem de canal é STATUS, nunca relatório** (18-08; feedback do
+  fundador — o texto integral das mensagens renderiza na tela dele):
+  corpo longo (relatório, diff, medição) vai a ARQUIVO (relatório de
+  sessão, context.md, ou `canal/<data>-<slug>.md` no vault do ticket) e a
+  mensagem tem ≤ ~8 linhas no formato
+  `<emoji-tema> <tipo>(<sessão>): o que fez · o que resolve · detalhe: <caminho>`
+  — temas: 🟢 fechado · 🔴 bloqueio/falha · 🟠 espera decisão · 🟣 achado ·
+  🔵 status. O tribunal lê o arquivo na triagem; a tela do fundador vê só
+  o ponteiro.
 - **Decisão pendente do FUNDADOR ganha `decisoes.md` na raiz do ticket**
   (template `ject-decisao-pendente.md`; caso-fonte bot-048, 18-08): um
   bloco por decisão — o-que-se-decide · contexto com registro · opções com

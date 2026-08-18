@@ -240,9 +240,12 @@ func defaultRoot() string {
 	return filepath.Join(home, "projects", "artifacts")
 }
 
+// trim truncates by runes, never by bytes: the titles are accented Portuguese,
+// and a byte slice lands mid-rune and prints a replacement character.
 func trim(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return string(r[:n-1]) + "…"
 }

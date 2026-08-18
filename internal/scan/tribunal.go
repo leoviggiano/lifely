@@ -111,9 +111,14 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				SeenAt:  now,
 			}
 			current = &p
-		case strings.HasPrefix(line, "- [x] "), strings.HasPrefix(line, "## "):
-			// A closed item or a new section ends whatever was open.
+		case strings.HasPrefix(line, "- [x] "):
 			flush()
+		case strings.HasPrefix(line, "## "):
+			// A section that is not a Faixa ends the lane too: without this,
+			// items under an unrelated heading inherit the previous lane's
+			// blocker and land in the wrong group.
+			flush()
+			faixa = ""
 		case current != nil && strings.HasPrefix(line, "  "):
 			current.Detail += "\n" + line
 		default:
@@ -145,10 +150,7 @@ func firstSentence(s string) string {
 			s = s[:i]
 		}
 	}
-	if len(s) > 90 {
-		s = s[:90]
-	}
-	return strings.TrimSpace(s)
+	return strings.TrimSpace(cut(s, 90))
 }
 
 // --- A2: every ledger with a status column ---------------------------------
@@ -161,7 +163,6 @@ var terminal = map[string]bool{
 	"decidida": true, "decidido": true, "concluida": true, "concluido": true,
 	"cancelada": true, "cancelado": true, "desistida": true, "desistiu": true,
 	"rejeitada": true, "rejeitado": true, "arquivada": true, "arquivado": true,
-	"": true,
 }
 
 func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
@@ -184,7 +185,14 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		}
 		found, ferr := ledgerRows(root, path, now)
 		if ferr != nil {
-			state.Err = ferr.Error()
+			// Name the file: a bare error message from a walk over many
+			// ledgers says nothing about which one broke, and the last one
+			// silently overwrites the others.
+			rel, _ := filepath.Rel(root, path)
+			if state.Err != "" {
+				state.Err += "; "
+			}
+			state.Err += rel + ": " + ferr.Error()
 			return nil
 		}
 		items = append(items, found...)
@@ -206,6 +214,7 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 
 	rel, _ := filepath.Rel(root, path)
 	var header []string
+	statusAt := -1
 	var items []pendency.Pendency
 
 	sc := bufio.NewScanner(f)
@@ -217,15 +226,18 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 		}
 		if header == nil {
 			header = strings.Split(strings.TrimPrefix(line, "# "), "\t")
+			statusAt = columnIndex(header, "status")
+			if statusAt < 0 {
+				// No status column: this file is not a ledger of decisions.
+				return nil, nil
+			}
 			continue
 		}
-		statusAt := columnIndex(header, "status")
-		if statusAt < 0 {
-			// No status column: this file is not a ledger of decisions.
-			return nil, nil
-		}
 		cells := strings.Split(line, "\t")
-		if statusAt >= len(cells) || terminal[strings.ToLower(strings.TrimSpace(cells[statusAt]))] {
+		// A row whose status is empty or missing is NOT decided. Treating it
+		// as terminal would hide a decision that is still waiting -- the exact
+		// failure this scanner's terminal-by-exclusion rule exists to avoid.
+		if statusAt < len(cells) && terminal[strings.ToLower(strings.TrimSpace(cells[statusAt]))] {
 			continue
 		}
 		key := naturalKey(header, cells)
@@ -314,8 +326,17 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 		state.Err = err.Error()
 		return nil, state
 	}
-	// The summary is read as one item: what carries across the round is prose,
-	// and cutting it into false pieces would misread the source.
+	// Only a summary that actually carries something forward is a pendency.
+	// Emitting one unconditionally would mean the panel could never reach
+	// zero -- and "nada pendente" is a result the panel must be able to show.
+	body, err := os.ReadFile(path)
+	if err != nil {
+		state.Err = err.Error()
+		return nil, state
+	}
+	if !carriesForward(string(body)) {
+		return nil, state
+	}
 	state.Count = 1
 	return []pendency.Pendency{{
 		ID:      pendency.NewID("summary", latest),
@@ -327,6 +348,23 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 		Surface: "leitura do summary",
 		SeenAt:  now,
 	}}, state
+}
+
+// carriesForward reports whether a session summary leaves something open.
+//
+// The marker is the summary's own vocabulary: a section naming what is
+// pending, blocked or carried over. Absent that, the round closed clean.
+func carriesForward(body string) bool {
+	lower := strings.ToLower(body)
+	for _, marker := range []string{
+		"## pendente", "## pendências", "## pendencias",
+		"## em aberto", "## atravessa", "## bloque",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- A4: agenda files sitting in the root ----------------------------------
@@ -457,9 +495,18 @@ func openMarker(line string) (string, bool) {
 }
 
 func excerpt(s string) string {
-	s = strings.TrimSpace(strings.Trim(s, "-*> "))
-	if len(s) > 120 {
-		s = s[:120]
+	return cut(strings.TrimSpace(strings.Trim(s, "-*> ")), 120)
+}
+
+// cut truncates by runes, never by bytes.
+//
+// Titles here are Portuguese and accented; slicing a byte count lands inside a
+// multi-byte rune and renders as a replacement character. Measured in the real
+// sweep output before the reviewer named it.
+func cut(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
 	}
-	return s
+	return string(r[:n])
 }
