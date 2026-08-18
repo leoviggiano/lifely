@@ -116,17 +116,36 @@ func TestFounderBoardIdentitySurvivesInsertion(t *testing.T) {
 	}
 }
 
-// Two long items that differ only after the display truncation must still be
-// two pendencies.
-func TestFounderBoardLongTitlesDoNotCollide(t *testing.T) {
-	long := strings.Repeat("a", 95)
+// Inserting an item at the top of the board must not renumber everyone below.
+//
+// a defect exists in two places, sweep the others BEFORE fixing the first.
+func TestLifeMarkerIdentityUsesTheWholeLine(t *testing.T) {
+	long := strings.Repeat("z", 130)
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"),
-		[]byte("## Faixa 1\n\n- [ ] **"+long+"X**\n- [ ] **"+long+"Y**\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "life.md"),
+		[]byte("# life\n\n[ABERTO] "+long+"A\n[ABERTO] "+long+"B\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := find(Tribunal(root).Pendencies, "A1")
-	if len(got) != 2 || got[0].ID == got[1].ID {
-		t.Errorf("long titles collapsed into one id: %+v", got)
+	got := find(Tribunal(root).Pendencies, "A6")
+	if len(got) != 2 {
+		t.Fatalf("got %d markers, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("two markers that differ past rune 120 share the id %q", got[0].ID)
+	}
+}
+
+// Two ledger rows without an id column, differing only in their first column,
+// are different rows and must not collapse into one pendency.
+func TestLedgerRowsWithoutIdDoNotCollide(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"),
+		"# projeto\ttitulo\tstatus\nlifely\trevisar spec\tpendente\nject\trevisar spec\tpendente\n")
+	got := find(Tribunal(root).Pendencies, "A2")
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("two rows share the id %q -- one disappears from the panel", got[0].ID)
 	}
 }

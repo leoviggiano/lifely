@@ -160,6 +160,8 @@ func cleanTitle(s string) string {
 	return strings.TrimSpace(strings.ReplaceAll(s, "*", ""))
 }
 
+// firstSentence shortens a title for DISPLAY only. It must never reach an
+// identity: truncation there makes two items collapse into one.
 func firstSentence(s string) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, "*", ""))
 	for _, cut := range []string{" — ", " – ", ". ", ": "} {
@@ -271,7 +273,7 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 		if statusAt < len(cells) && terminal[strings.ToLower(strings.TrimSpace(cells[statusAt]))] {
 			continue
 		}
-		key := naturalKey(header, cells)
+		key := rowKey(header, cells)
 		items = append(items, pendency.Pendency{
 			ID:      pendency.NewID(pendency.Slug(rel), key),
 			Class:   "A2",
@@ -323,6 +325,27 @@ func naturalKey(header, cells []string) string {
 		first = strings.TrimSpace(cells[0])
 	}
 	return pendency.LocationKey(strings.Join(header, "\t"), first)
+}
+
+// rowKey combines the naming cell with the row's first column, so that two
+// rows saying the same thing about different subjects stay two rows.
+//
+// When both are equal the rows are indistinguishable in the source as well --
+// a human reading the ledger could not tell them apart either, and treating
+// them as one is the honest outcome, not a defect hidden by a counter.
+func rowKey(header, cells []string) string {
+	key := naturalKey(header, cells)
+	if columnIndex(header, "id") >= 0 {
+		return key // an explicit id is already unique by contract
+	}
+	first := ""
+	if len(cells) > 0 {
+		first = pendency.Slug(strings.TrimSpace(cells[0]))
+	}
+	if first == "" || first == key {
+		return key
+	}
+	return first + "-" + key
 }
 
 // namingCell returns the first cell that plausibly names the row: a title-ish
@@ -556,7 +579,11 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 			continue
 		}
 		items = append(items, pendency.Pendency{
-			ID:      pendency.NewID("life", pendency.LocationKey(heading, excerpt(text))),
+			// The WHOLE line, not the displayed excerpt: excerpt cuts at 120
+			// runes for the panel, and two markers that differ only past that
+			// point would share an id and one would vanish. Same defect the
+			// A1 identity had; swept here in the same pass.
+			ID:      pendency.NewID("life", pendency.LocationKey(heading, strings.TrimSpace(text))),
 			Class:   "A6",
 			Source:  "life.md",
 			Title:   strings.TrimSpace(m + " " + excerpt(rest)),
