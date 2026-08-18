@@ -175,7 +175,7 @@ func TestOpenMarkerIgnoresMentions(t *testing.T) {
 		"3. [PROPOSTA] promover a decisao",
 	}
 	for _, line := range raises {
-		if _, ok := openMarker(line); !ok {
+		if _, _, ok := openMarker(line); !ok {
 			t.Errorf("openMarker(%q) = false, want true", line)
 		}
 	}
@@ -187,7 +187,7 @@ func TestOpenMarkerIgnoresMentions(t *testing.T) {
 		"Promoção de [PROPOSTA] exige veredito explicito",
 	}
 	for _, line := range mentions {
-		if _, ok := openMarker(line); ok {
+		if _, _, ok := openMarker(line); ok {
 			t.Errorf("openMarker(%q) = true, want false -- that is a mention, not an item", line)
 		}
 	}
@@ -290,5 +290,29 @@ func TestLedgerErrorNamesTheFile(t *testing.T) {
 	}
 	if !strings.Contains(reported, "ruim.tsv") {
 		t.Errorf("the ledger error did not name the file: %q", reported)
+	}
+}
+
+// The marker must not be printed twice, including when the line opens with a
+// bullet or a quote -- stripping it from the raw text silently fails there.
+func TestLifeMarkerTitleNotDoubledWithBullets(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "life.md"),
+		"# life\n\n- [ABERTO] teto percentual?\n> [PROPOSTA] corrigir 15.6 para 15.7\n")
+	for _, p := range find(Tribunal(root).Pendencies, "A6") {
+		marker, _, _ := openMarker(p.Title)
+		if strings.Count(p.Title, marker) != 1 {
+			t.Errorf("title %q repeats the marker", p.Title)
+		}
+	}
+}
+
+// A ledger status written naturally, with accents, must still count as decided.
+func TestTerminalStatusWithAccents(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"), "# id\ttitulo\tstatus\nA\tfeita\tconcluída\nB\taberta\tpendente\n")
+	got := find(Tribunal(root).Pendencies, "A2")
+	if len(got) != 1 {
+		t.Fatalf("got %d open rows, want 1 -- an accented terminal status was read as open", len(got))
 	}
 }

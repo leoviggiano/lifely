@@ -194,6 +194,10 @@ func scanCmd(args []string) error {
 	res := scanpkg.Tribunal(*root)
 	if len(res.Pendencies) == 0 {
 		fmt.Println("Nada pendente. As fontes foram varridas agora e nada espera decisao. Zero e resultado.")
+		// Zero pendencies must never hide a source that could not be read:
+		// "nada pendente" would then mean "we did not look", and the empty
+		// screen is exactly where nobody goes looking for a failure (NFR6).
+		printSources(res.Sources)
 		return nil
 	}
 
@@ -214,15 +218,22 @@ func scanCmd(args []string) error {
 		}
 	}
 
+	printSources(res.Sources)
+	return nil
+}
+
+func printSources(sources []scanpkg.SourceState) {
+	if len(sources) == 0 {
+		return
+	}
 	fmt.Print("\nFONTES\n")
-	for _, s := range res.Sources {
+	for _, s := range sources {
 		if s.Err != "" {
 			fmt.Printf("  %-30s ILEGIVEL: %s\n", s.Name, s.Err)
 			continue
 		}
 		fmt.Printf("  %-30s %d\n", s.Name, s.Count)
 	}
-	return nil
 }
 
 var groupLabel = map[pendency.Blocker]string{

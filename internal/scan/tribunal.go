@@ -9,10 +9,12 @@ package scan
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -161,6 +163,7 @@ func firstSentence(s string) string {
 var terminal = map[string]bool{
 	"aprovada": true, "aprovado": true, "aplicada": true, "aplicado": true,
 	"decidida": true, "decidido": true, "concluida": true, "concluido": true,
+	"concluída": true, "concluído": true, "decisão": true,
 	"cancelada": true, "cancelado": true, "desistida": true, "desistiu": true,
 	"rejeitada": true, "rejeitado": true, "arquivada": true, "arquivado": true,
 }
@@ -404,7 +407,13 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	cmd := exec.Command("git", "-C", root, "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
+		// Keep git's own words: "exit status 128" alone says nothing about
+		// whether the root is not a repository, unreadable, or something else.
 		state.Err = err.Error()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			state.Err += ": " + strings.TrimSpace(string(ee.Stderr))
+		}
 		return nil, state
 	}
 	lines := strings.FieldsFunc(string(out), func(r rune) bool { return r == '\n' })
@@ -444,13 +453,15 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 	var heading string
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	for line := 0; sc.Scan(); line++ {
+	line := 0
+	for sc.Scan() {
+		line++
 		text := sc.Text()
 		if strings.HasPrefix(text, "#") {
 			heading = strings.TrimSpace(strings.TrimLeft(text, "# "))
 			continue
 		}
-		m, ok := openMarker(text)
+		m, rest, ok := openMarker(text)
 		if !ok {
 			continue
 		}
@@ -458,10 +469,10 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 			ID:      pendency.NewID("life", pendency.LocationKey(heading, excerpt(text))),
 			Class:   "A6",
 			Source:  "life.md",
-			Title:   m + " " + excerpt(strings.TrimPrefix(strings.TrimSpace(text), m)),
+			Title:   strings.TrimSpace(m + " " + excerpt(rest)),
 			Detail:  text,
 			Blocks:  pendency.Founder,
-			Origin:  pendency.Origin{Path: path, Locator: heading, Open: "obsidian://open?path=" + path},
+			Origin:  pendency.Origin{Path: path, Locator: heading + ":" + strconv.Itoa(line), Open: "obsidian://open?path=" + path},
 			Surface: "emenda no life.md, pelo tribunal",
 			SeenAt:  now,
 		})
@@ -481,17 +492,21 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 // noise that buries the dozen real ones. Two rules cut it: a table row is
 // never an item (the changelog is history, not an open question), and the
 // marker has to open the line, not appear inside a sentence about it.
-func openMarker(line string) (string, bool) {
+// It returns the marker and the rest of the line with the marker removed --
+// the caller must use that rest, not the raw line: stripping the marker from
+// the raw text fails whenever the line opens with a bullet or a quote, and the
+// marker ends up printed twice.
+func openMarker(line string) (marker_, rest string, ok bool) {
 	trimmed := strings.TrimSpace(line)
 	if strings.HasPrefix(trimmed, "|") {
-		return "", false
+		return "", "", false
 	}
 	head := strings.TrimLeft(trimmed, "-*>#0123456789. ")
 	m := marker.FindStringIndex(head)
 	if m == nil || m[0] != 0 {
-		return "", false
+		return "", "", false
 	}
-	return head[m[0]:m[1]], true
+	return head[m[0]:m[1]], strings.TrimSpace(head[m[1]:]), true
 }
 
 func excerpt(s string) string {
