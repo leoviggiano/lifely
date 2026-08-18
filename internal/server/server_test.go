@@ -62,6 +62,11 @@ func TestHealthzReadsOwnershipFromTheMarker(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
+	// currentOwner reads the marker, so without this the test touches (and
+	// creates) the developer's real cache directory.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	req.Host = "127.0.0.1:7777"
 	rec := httptest.NewRecorder()

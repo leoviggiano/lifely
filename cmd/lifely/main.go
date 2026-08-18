@@ -84,9 +84,11 @@ func serve(args []string) error {
 	// scan of the same sources and split the founder's attention between two
 	// URLs. Reuse what is already up and say where it is (spec FR7.4).
 	//
-	// This check is the friendly path, not the lock: two `serve` calls can
-	// pass it at the same moment. The real mutual exclusion is binding the
-	// port below -- the loser fails to listen and never registers.
+	// This check is the friendly path, not a lock: two `serve` calls can pass
+	// it at the same moment. Binding the port below narrows the race, but only
+	// between callers asking for the SAME port -- two `serve --port` on
+	// different ports both bind and both register, and the last write wins.
+	// One instance is a convention here, not an enforced invariant.
 	if live, ok := runtime.Running(); ok {
 		// Reuse transfers ownership when the founder joins by hand.
 		//
@@ -95,10 +97,19 @@ func serve(args []string) error {
 		// kills the panel the founder is actually using -- the exact bug
 		// FR7.3 exists to prevent, reached through the reuse path.
 		if who == runtime.OwnerManual && live.Owner == runtime.OwnerTribunal {
-			live.Owner = runtime.OwnerManual
-			if err := runtime.Write(live); err != nil {
+			// Compare-and-set: the daemon we probed lives in another process
+			// and may have exited while we identified it. A blind write would
+			// resurrect a marker for a process that is gone.
+			transferred := live
+			transferred.Owner = runtime.OwnerManual
+			if err := runtime.WriteIfUnchanged(live, transferred); err != nil {
+				if errors.Is(err, runtime.ErrChanged) || errors.Is(err, runtime.ErrNoMarker) {
+					fmt.Println("o daemon mudou enquanto eu olhava; rode `lifely serve` de novo")
+					return nil
+				}
 				return fmt.Errorf("transferindo a posse do daemon: %w", err)
 			}
+			live = transferred
 			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)\n", live.Port)
 			return nil
 		}
@@ -172,16 +183,24 @@ func status() error {
 
 func stop(args []string) error {
 	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
-	// The DEFAULT is the constrained asker, not the omnipotent one.
+	// Who is asking cannot be guessed, and the two failure modes pull in
+	// opposite directions: defaulting to `manual` lets a session-close hook
+	// that forgot the flag kill the founder's panel; defaulting to `tribunal`
+	// makes the plain interactive pair `serve` then `stop` always refuse.
 	//
-	// `manual` may stop anything; `tribunal` may only stop what it started.
-	// Defaulting to `manual` made the FR7.3 guard depend on every caller
-	// remembering the flag -- a session-close hook that forgot it would kill
-	// the founder's panel. Forgetting the flag has to fail safe.
-	owner := fs.String("owner", string(runtime.OwnerTribunal), "who is asking: tribunal (default, constrained) or manual (stops anything)")
+	// So it is not defaulted at all when nobody is watching: at a terminal the
+	// asker is the person typing (`manual`); from a script the flag is
+	// REQUIRED, and forgetting it refuses instead of guessing.
+	owner := fs.String("owner", "", "who is asking: manual (stops anything) or tribunal (only what it started); required when not run from a terminal")
 	force := fs.Bool("force", false, "stop even when the process at that pid cannot be identified")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *owner == "" {
+		if !interactive() {
+			return errors.New("rode com --owner manual ou --owner tribunal: fora de um terminal eu nao adivinho quem pede")
+		}
+		*owner = string(runtime.OwnerManual)
 	}
 	asker, err := parseOwner(*owner)
 	if err != nil {
@@ -220,6 +239,15 @@ func stop(args []string) error {
 		return errRefused
 	}
 	return err
+}
+
+// interactive reports whether a person is typing at a terminal.
+func interactive() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // errRefused reports a stop deliberately not performed. It exits non-zero so a
