@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/leoviggiano/lifely/internal/runtime"
 )
 
 // A page on another site must not be able to reach the panel through the
@@ -31,6 +33,29 @@ func TestLoopbackOnly(t *testing.T) {
 				t.Errorf("Host %q = %d, want %d", tt.host, rec.Code, tt.want)
 			}
 		})
+	}
+}
+
+// Ownership can transfer while the daemon runs, so /healthz must read the
+// marker instead of echoing what this process started with.
+func TestHealthzReadsOwnershipFromTheMarker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	if err := runtime.Write(runtime.Marker{PID: 1, Port: 7777, Owner: runtime.OwnerManual}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.Host = "127.0.0.1:7777"
+	rec := httptest.NewRecorder()
+	New(7777, "tribunal").ServeHTTP(rec, req)
+
+	var got Health
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Owner != string(runtime.OwnerManual) {
+		t.Errorf("/healthz owner = %q, want %q -- it echoed the startup value", got.Owner, runtime.OwnerManual)
 	}
 }
 

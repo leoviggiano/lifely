@@ -82,6 +82,20 @@ func serve(args []string) error {
 	// pass it at the same moment. The real mutual exclusion is binding the
 	// port below -- the loser fails to listen and never registers.
 	if live, ok := runtime.Running(); ok {
+		// Reuse transfers ownership when the founder joins by hand.
+		//
+		// Without this, a manual `serve` over a tribunal-owned daemon leaves
+		// the marker saying "tribunal", and closing the tribunal session then
+		// kills the panel the founder is actually using -- the exact bug
+		// FR7.3 exists to prevent, reached through the reuse path.
+		if who == runtime.OwnerManual && live.Owner == runtime.OwnerTribunal {
+			live.Owner = runtime.OwnerManual
+			if err := runtime.Write(live); err != nil {
+				return fmt.Errorf("transferindo a posse do daemon: %w", err)
+			}
+			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)\n", live.Port)
+			return nil
+		}
 		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
 		return nil
 	}
@@ -172,6 +186,10 @@ func stop(args []string) error {
 	if err := live.Stop(asker); err != nil {
 		if err == runtime.ErrGone {
 			fmt.Println("lifely nao esta mais de pe")
+			return nil
+		}
+		if err == runtime.ErrUnidentified {
+			fmt.Printf("lifely nao mexeu no pid %d: %v\n", live.PID, err)
 			return nil
 		}
 		if err == runtime.ErrNotOwner {

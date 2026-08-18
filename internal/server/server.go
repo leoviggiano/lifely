@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/leoviggiano/lifely/internal/runtime"
 )
 
 // Version is the build's version string, surfaced by /healthz.
@@ -33,7 +35,11 @@ func New(port int, owner string) http.Handler {
 			Status:  "ok",
 			Version: Version,
 			Port:    port,
-			Owner:   owner,
+			// Read from the marker, not from the value captured at startup:
+			// ownership can transfer while the daemon runs (a manual `serve`
+			// reusing a tribunal daemon), and a frozen answer here would tell
+			// the caller the daemon still belongs to whoever started it.
+			Owner: currentOwner(owner),
 		})
 	})
 	return LoopbackOnly(mux)
@@ -71,6 +77,16 @@ func isLoopbackHost(host string) bool {
 	name = strings.Trim(name, "[]")
 	ip := net.ParseIP(name)
 	return ip != nil && ip.IsLoopback()
+}
+
+// currentOwner returns the owner recorded for the running daemon, falling
+// back to the one this process started with when there is no marker to read.
+func currentOwner(fallback string) string {
+	m, err := runtime.Read()
+	if err != nil {
+		return fallback
+	}
+	return string(m.Owner)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
