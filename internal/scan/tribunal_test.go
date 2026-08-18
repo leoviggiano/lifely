@@ -322,3 +322,56 @@ func TestTerminalStatusWithAccents(t *testing.T) {
 		t.Fatalf("got %d open rows, want 1 -- an accented terminal status was read as open", len(got))
 	}
 }
+
+// The identity of a ledger row must not fold the whole row: editing a note or
+// a date would mint a new id and orphan the conversation attached to it. The
+// first fix for this only moved the problem into describe(), whose own last
+// resort is the joined row -- so the test pins the property, not the path.
+func TestNaturalKeyIgnoresVolatileColumns(t *testing.T) {
+	root := t.TempDir()
+	const header = "# projeto\tstatus\tatualizado\tnota\n"
+
+	write(t, filepath.Join(root, "fila.tsv"), header+"lifely\tpendente\t2026-08-18\tprimeira nota\n")
+	first := find(Tribunal(root).Pendencies, "A2")
+	if len(first) != 1 {
+		t.Fatalf("got %d rows, want 1", len(first))
+	}
+
+	// Same row, different note and date: the identity must not move.
+	write(t, filepath.Join(root, "fila.tsv"), header+"lifely\tpendente\t2026-09-01\toutra nota bem diferente\n")
+	second := find(Tribunal(root).Pendencies, "A2")
+	if len(second) != 1 {
+		t.Fatalf("got %d rows, want 1", len(second))
+	}
+
+	if first[0].ID != second[0].ID {
+		t.Errorf("editing a note changed the identity: %q became %q", first[0].ID, second[0].ID)
+	}
+}
+
+// Obsidian percent-decodes the path parameter, so a space has to arrive as
+// %20. QueryEscape sends "+", which the app reads literally and fails to open.
+func TestObsidianURIEncodesSpacesAsPercent20(t *testing.T) {
+	got := obsidianURI("/Users/leo/my life be life/nota com acento é.md")
+	if strings.Contains(got, "+") {
+		t.Errorf("the URI carries a literal plus: %q", got)
+	}
+	if !strings.Contains(got, "%20") {
+		t.Errorf("the space was not percent-encoded: %q", got)
+	}
+}
+
+// A stray directory under sessions/ must not win the "most recent round" pick.
+func TestLatestSummaryIgnoresNonDateDirectories(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"), "## Pendente\n\nfalta o veredito.\n")
+	write(t, filepath.Join(root, "sessions", "zzz-rascunho", "summary.md"), "## Pendente\n\nlixo.\n")
+
+	got := find(Tribunal(root).Pendencies, "A3")
+	if len(got) != 1 {
+		t.Fatalf("got %d summaries, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Source, "2026-08-18") {
+		t.Errorf("the stray directory won the pick: %q", got[0].Source)
+	}
+}

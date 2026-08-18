@@ -99,9 +99,12 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 			continue
 		}
 		switch {
-		case strings.HasPrefix(line, "- [ ] "):
+		case strings.HasPrefix(strings.TrimLeft(line, " "), "- [ ] "):
+			// Indented sub-tasks count: an item nested under another is still
+			// open work, and dropping it hides the very detail that a board
+			// uses indentation to express.
 			flush()
-			title := strings.TrimPrefix(line, "- [ ] ")
+			title := strings.TrimPrefix(strings.TrimLeft(line, " "), "- [ ] ")
 			p := pendency.Pendency{
 				ID:      pendency.NewID("founder", pendency.Slug(firstSentence(title))),
 				Class:   "A1",
@@ -114,7 +117,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				SeenAt:  now,
 			}
 			current = &p
-		case strings.HasPrefix(line, "- [x] "):
+		case strings.HasPrefix(strings.TrimLeft(line, " "), "- [x] "):
 			flush()
 		case strings.HasPrefix(line, "## "):
 			// A section that is not a Faixa ends the lane too: without this,
@@ -293,7 +296,63 @@ func naturalKey(header, cells []string) string {
 	// Fall back to what NAMES the row, never to the whole row: folding status,
 	// dates and notes into the identity means editing a note mints a new id
 	// and orphans the conversation attached to it (spec FR2.2).
-	return pendency.Slug(describe(header, cells))
+	//
+	// describe() alone is not enough -- its own last resort is the joined row,
+	// which is exactly what we are avoiding. The chain ends at a naming
+	// column, never at "everything".
+	if title := namingCell(header, cells); title != "" {
+		return pendency.Slug(title)
+	}
+	return pendency.LocationKey(strings.Join(header, "\t"), firstNonEmpty(cells))
+}
+
+// namingCell returns the first cell that plausibly names the row: a title-ish
+// column when the header declares one, otherwise the first cell that is
+// neither the status nor a date.
+func namingCell(header, cells []string) string {
+	for _, name := range []string{"titulo", "título", "decisao", "decisão", "title", "assunto"} {
+		if i := columnIndex(header, name); i >= 0 && i < len(cells) {
+			if v := strings.TrimSpace(cells[i]); v != "" {
+				return v
+			}
+		}
+	}
+	statusAt := columnIndex(header, "status")
+	for i, c := range cells {
+		if i == statusAt {
+			continue
+		}
+		v := strings.TrimSpace(c)
+		if v == "" || looksLikeDate(v) {
+			continue
+		}
+		return v
+	}
+	return ""
+}
+
+// looksLikeDate keeps timestamps out of the identity: they change on every
+// touch of the row.
+func looksLikeDate(v string) bool {
+	if len(v) < 8 {
+		return false
+	}
+	digits := 0
+	for _, r := range v {
+		if r >= '0' && r <= '9' {
+			digits++
+		}
+	}
+	return digits >= 6
+}
+
+func firstNonEmpty(cells []string) string {
+	for _, c := range cells {
+		if v := strings.TrimSpace(c); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func describe(header, cells []string) string {
@@ -331,9 +390,12 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 		state.Err = err.Error()
 		return nil, state
 	}
+	// Only date-shaped directories count: the pick is lexicographic, so a
+	// stray folder ("tmp", "zzz") would otherwise win and the panel would read
+	// the wrong round, or none at all.
 	var latest string
 	for _, e := range entries {
-		if e.IsDir() && e.Name() > latest {
+		if e.IsDir() && sessionDate.MatchString(e.Name()) && e.Name() > latest {
 			latest = e.Name()
 		}
 	}
@@ -382,7 +444,10 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 // record repository, and a raw path with a space or an accent produces a URI
 // the app silently refuses to open.
 func obsidianURI(path string) string {
-	return "obsidian://open?path=" + url.QueryEscape(path)
+	// PathEscape, not QueryEscape: QueryEscape turns a space into "+", and
+	// Obsidian percent-decodes this parameter -- a path with a space would
+	// arrive carrying a literal plus and fail to open.
+	return "obsidian://open?path=" + url.PathEscape(path)
 }
 
 // carriesForward reports whether a session summary leaves something open.
@@ -467,6 +532,9 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 }
 
 // --- A6: open markers in life.md -------------------------------------------
+
+// sessionDate matches the YYYY-MM-DD directories under sessions/.
+var sessionDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
 
 var marker = regexp.MustCompile(`\[(ABERTO|PROPOSTA)\]`)
 
