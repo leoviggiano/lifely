@@ -92,29 +92,7 @@ func serve(args []string) error {
 	// at once, including two `serve --port` asking for different ports. This
 	// check exists to give a good message, not to guarantee anything.
 	if live, ok := runtime.Running(); ok {
-		// The FR7.3 guarantee lives in runtime.TakeOver, not here: a copy of
-		// this decision inline would be a second implementation, and the test
-		// that pins it would be pinning the copy.
-		live, moved, err := runtime.TakeOver(live, who)
-		if err != nil {
-			if errors.Is(err, runtime.ErrChanged) || errors.Is(err, runtime.ErrNoMarker) {
-				// Exit non-zero: nothing is serving on our behalf, and telling
-				// a script "the panel is up" when it is not is the worse lie.
-				return fmt.Errorf("o daemon mudou enquanto eu olhava; rode `lifely serve` de novo")
-			}
-			return fmt.Errorf("transferindo a posse do daemon: %w", err)
-		}
-		switch {
-		case moved:
-			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)\n", live.Port)
-		case portWasSet(fs) && *port != live.Port:
-			// Say it out loud: silently serving a port other than the one
-			// asked for is how somebody ends up curling an empty address.
-			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando; a porta %d que voce pediu foi ignorada\n", live.Port, live.Owner, *port)
-		default:
-			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
-		}
-		return nil
+		return announceReuse(live, who, fs, *port)
 	}
 
 	// Loopback only: the panel is never reachable from the network.
@@ -134,19 +112,15 @@ func serve(args []string) error {
 			// Another daemon won the race between our Running() check and
 			// here. One instance, decided by the filesystem (spec FR7.4).
 			//
-			// Re-read and run the same take-over as the normal reuse path:
-			// losing a race must not cost the founder the ownership transfer
-			// he would have got a millisecond earlier.
+			// The same announcement as the normal path, from the same
+			// function: losing a race must not cost the founder the ownership
+			// transfer he would have had a millisecond earlier, and a second
+			// copy of this logic would drift from the first (it already did).
 			live, ok := runtime.Running()
 			if !ok {
 				return fmt.Errorf("outro lifely subiu e saiu enquanto eu registrava; tente de novo")
 			}
-			if live, moved, terr := runtime.TakeOver(live, who); terr == nil && moved {
-				fmt.Printf("outro lifely subiu primeiro em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua\n", live.Port)
-			} else {
-				fmt.Printf("outro lifely subiu primeiro em http://127.0.0.1:%d (dono: %s) -- reusando o dele\n", live.Port, live.Owner)
-			}
-			return nil
+			return announceReuse(live, who, fs, *port)
 		}
 		return fmt.Errorf("registering the daemon: %w", err)
 	}
@@ -178,6 +152,34 @@ func serve(args []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return httpServer.Shutdown(shutdownCtx)
+}
+
+// announceReuse takes over a running daemon when the founder joins it by hand,
+// and says what happened. It is the ONE place that decides this, so the normal
+// path and the lost-race path can never diverge.
+func announceReuse(live runtime.Marker, who runtime.Owner, fs *flag.FlagSet, wanted int) error {
+	live, moved, err := runtime.TakeOver(live, who)
+	if err != nil {
+		if errors.Is(err, runtime.ErrChanged) || errors.Is(err, runtime.ErrNoMarker) {
+			// Exit non-zero: nothing is serving on our behalf, and telling a
+			// script "the panel is up" when it is not is the worse lie.
+			return fmt.Errorf("o daemon mudou enquanto eu olhava; rode `lifely serve` de novo")
+		}
+		// Never swallow the rest: an unexpected failure here means the marker
+		// is in a state nobody understands, and reporting "reusando" would
+		// hide it behind good news.
+		return fmt.Errorf("transferindo a posse do daemon: %w", err)
+	}
+
+	switch {
+	case moved:
+		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)\n", live.Port)
+	case portWasSet(fs) && wanted != live.Port:
+		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando; a porta %d que voce pediu foi ignorada\n", live.Port, live.Owner, wanted)
+	default:
+		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
+	}
+	return nil
 }
 
 // portWasSet reports whether --port was given explicitly, so that reusing a
@@ -256,6 +258,16 @@ func stop(args []string) error {
 	case errors.Is(err, runtime.ErrGone):
 		fmt.Println("lifely nao esta mais de pe")
 		return nil
+	case errors.Is(err, runtime.ErrForeign):
+		if *force {
+			if ferr := live.ForceStop(); ferr != nil {
+				return ferr
+			}
+			fmt.Printf("marcador do pid %d limpo por --force; o processo nao era lifely\n", live.PID)
+			return nil
+		}
+		fmt.Printf("o pid %d no marcador e de outro programa: %v (use --force para limpar)\n", live.PID, err)
+		return errRefused
 	case errors.Is(err, runtime.ErrNotOwner):
 		// The exit code carries the outcome: a script closing the tribunal
 		// must tell "stopped" from "refused, still running".

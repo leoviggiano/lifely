@@ -19,6 +19,10 @@ var ErrNotOwner = errors.New("this daemon was started by hand; only an explicit 
 // ErrGone reports a stop asked of a daemon that is no longer running.
 var ErrGone = errors.New("no lifely daemon is running at that pid")
 
+// ErrForeign reports a stop refused because the pid belongs to another
+// program: the marker is stale and the process is somebody else's.
+var ErrForeign = errors.New("the pid in the marker belongs to another program; refusing to signal it")
+
 // ErrUnidentified reports a stop refused because we could not confirm that the
 // process at that pid is still a lifely.
 var ErrUnidentified = errors.New("cannot confirm the process at that pid is lifely; refusing to signal it")
@@ -220,8 +224,14 @@ func (m Marker) Stop(asker Owner) error {
 		return ErrNotOwner
 	}
 	switch m.probe() {
-	case identityGone, identityForeign:
+	case identityGone:
 		return ErrGone
+	case identityForeign:
+		// Distinct from "gone": the pid IS alive, it is simply not us. The
+		// caller may still want the marker out of the way, and collapsing this
+		// into ErrGone would leave `--force` unreachable for the one case
+		// where a human has actually looked and decided.
+		return ErrForeign
 	case identityUnknown:
 		return ErrUnidentified
 	}

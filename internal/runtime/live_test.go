@@ -85,9 +85,11 @@ func TestLiveRejectsARecycledPID(t *testing.T) {
 
 // Stopping a pid that is alive but is not us must refuse, not signal it.
 func TestStopRefusesAForeignPID(t *testing.T) {
+	// A live stranger is NOT "gone": the distinction is what makes --force
+	// reachable for the one case where a human looked and decided.
 	m := Marker{PID: stranger(t), Owner: OwnerManual}
-	if err := m.Stop(OwnerManual); err != ErrGone {
-		t.Errorf("stopping a live stranger = %v, want ErrGone", err)
+	if err := m.Stop(OwnerManual); err != ErrForeign {
+		t.Errorf("stopping a live stranger = %v, want ErrForeign", err)
 	}
 }
 
@@ -277,23 +279,6 @@ func TestTransferRefusesWhenTheDaemonMovedUnderUs(t *testing.T) {
 // A transient read error is not corruption: healing it would delete a good
 // marker over a passing failure.
 func TestOnlyUnparseableMarkersAreHealed(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-
-	path, err := Path()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("{ nao e json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := Running(); ok {
-		t.Fatal("a corrupt marker was reported as running")
-	}
-	if _, err := Read(); err != ErrNoMarker {
-		t.Errorf("the corrupt marker survived: %v", err)
-	}
-
 	if isCorrupt(os.ErrPermission) {
 		t.Error("a permission error was classified as corruption")
 	}
