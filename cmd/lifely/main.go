@@ -72,6 +72,9 @@ func serve(args []string) error {
 	port := fs.Int("port", defaultPort, "port to listen on")
 	owner := fs.String("owner", string(runtime.OwnerManual), "who started this daemon: tribunal or manual")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 
@@ -104,13 +107,21 @@ func serve(args []string) error {
 			transferred.Owner = runtime.OwnerManual
 			if err := runtime.WriteIfUnchanged(live, transferred); err != nil {
 				if errors.Is(err, runtime.ErrChanged) || errors.Is(err, runtime.ErrNoMarker) {
-					fmt.Println("o daemon mudou enquanto eu olhava; rode `lifely serve` de novo")
-					return nil
+					// Exit non-zero: nothing is serving on our behalf and the
+					// caller has to know. Returning 0 here would tell a script
+					// "the panel is up" when it is not.
+					return fmt.Errorf("o daemon mudou enquanto eu olhava; rode `lifely serve` de novo")
 				}
 				return fmt.Errorf("transferindo a posse do daemon: %w", err)
 			}
 			live = transferred
 			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)\n", live.Port)
+			return nil
+		}
+		if fs.Lookup("port").Value.String() != fmt.Sprint(live.Port) && portWasSet(fs) {
+			// Say it out loud: silently serving a different port than the one
+			// asked for is how somebody ends up curling an empty address.
+			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando; a porta %d que voce pediu foi ignorada\n", live.Port, live.Owner, *port)
 			return nil
 		}
 		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
@@ -160,6 +171,18 @@ func serve(args []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return httpServer.Shutdown(shutdownCtx)
+}
+
+// portWasSet reports whether --port was given explicitly, so that reusing a
+// daemon on another port is only announced when somebody actually asked.
+func portWasSet(fs *flag.FlagSet) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "port" {
+			set = true
+		}
+	})
+	return set
 }
 
 func parseOwner(owner string) (runtime.Owner, error) {

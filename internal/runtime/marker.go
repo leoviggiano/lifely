@@ -104,6 +104,28 @@ func WriteIfUnchanged(seen, next Marker) error {
 // ErrChanged reports that the marker moved under a compare-and-set.
 var ErrChanged = errors.New("the daemon marker changed while we were reading it")
 
+// Peek is Read without creating anything on the way: for callers on a hot
+// path (every /healthz), a lookup must not have the side effect of making a
+// directory.
+func Peek() (Marker, error) {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return Marker{}, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "lifely", "daemon.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return Marker{}, ErrNoMarker
+	}
+	if err != nil {
+		return Marker{}, err
+	}
+	var m Marker
+	if err := json.Unmarshal(data, &m); err != nil {
+		return Marker{}, err
+	}
+	return m, nil
+}
+
 // Read returns the registered daemon, or ErrNoMarker when there is none.
 func Read() (Marker, error) {
 	path, err := Path()

@@ -181,3 +181,88 @@ func TestRunningHealsACorruptMarker(t *testing.T) {
 		t.Errorf("the corrupt marker survived: Read() = %v, want ErrNoMarker", err)
 	}
 }
+
+// The FR7.3 bug, pinned as a test at last.
+//
+// The tribunal starts the panel; the founder then runs `lifely serve` by hand
+// and gets "reusando". If the marker keeps saying Owner=tribunal, closing the
+// tribunal session kills the panel he is using. Ownership has to move to him.
+//
+// This was proven by execution when it was fixed and never written down --
+// which is how the most important behaviour in this package ended up as the
+// only one without a guard.
+func TestReuseTransfersOwnershipToTheFounder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	tribunal := Marker{PID: os.Getpid(), Port: 7777, Owner: OwnerTribunal, Version: "test"}
+	if err := Write(tribunal); err != nil {
+		t.Fatal(err)
+	}
+
+	// What `serve --owner manual` does when it finds a live daemon.
+	transferred := tribunal
+	transferred.Owner = OwnerManual
+	if err := WriteIfUnchanged(tribunal, transferred); err != nil {
+		t.Fatalf("the transfer failed: %v", err)
+	}
+
+	got, err := Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Owner != OwnerManual {
+		t.Fatalf("owner = %q after a manual reuse, want %q", got.Owner, OwnerManual)
+	}
+	// And now the tribunal closing its session must not take it down.
+	if err := got.Stop(OwnerTribunal); err != ErrNotOwner {
+		t.Errorf("the tribunal could still stop the founder's panel: %v", err)
+	}
+}
+
+// The transfer is a compare-and-set: if the daemon vanished while we probed
+// it, the write must fail rather than resurrect a marker for a dead process.
+func TestTransferRefusesWhenTheDaemonMovedUnderUs(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	seen := Marker{PID: os.Getpid(), Port: 7777, Owner: OwnerTribunal}
+	moved := Marker{PID: os.Getpid(), Port: 7778, Owner: OwnerTribunal}
+	if err := Write(moved); err != nil {
+		t.Fatal(err)
+	}
+
+	next := seen
+	next.Owner = OwnerManual
+	if err := WriteIfUnchanged(seen, next); err != ErrChanged {
+		t.Errorf("WriteIfUnchanged over a moved marker = %v, want ErrChanged", err)
+	}
+	if got, _ := Read(); got != moved {
+		t.Errorf("the marker was overwritten anyway: %+v", got)
+	}
+}
+
+// A transient read error is not corruption: healing it would delete a good
+// marker over a passing failure.
+func TestOnlyUnparseableMarkersAreHealed(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	path, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{ nao e json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Running(); ok {
+		t.Fatal("a corrupt marker was reported as running")
+	}
+	if _, err := Read(); err != ErrNoMarker {
+		t.Errorf("the corrupt marker survived: %v", err)
+	}
+
+	if isCorrupt(os.ErrPermission) {
+		t.Error("a permission error was classified as corruption")
+	}
+}

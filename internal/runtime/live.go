@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -138,8 +139,12 @@ func Running() (Marker, bool) {
 		// A marker we cannot parse is worse than none: it can never be healed
 		// by a probe, and every future `serve` would keep tripping over it.
 		// Absent is the honest state, so make it true.
-		if !errors.Is(err, ErrNoMarker) {
-			_ = Remove()
+		// Heal only what is provably unusable, and only if nobody replaced it
+		// meanwhile: an unconditional Remove here would erase a marker another
+		// daemon wrote in the window -- the very erasure this file spends two
+		// other functions preventing. A transient read error is not corruption.
+		if isCorrupt(err) {
+			_ = removeIfCorrupt()
 		}
 		return Marker{}, false
 	}
@@ -148,6 +153,25 @@ func Running() (Marker, bool) {
 		return Marker{}, false
 	}
 	return m, true
+}
+
+// isCorrupt separates "this file cannot be parsed" from "I could not read it
+// right now". Only the first is healed; the second is transient, and healing
+// it would delete a perfectly good marker over a passing error.
+func isCorrupt(err error) bool {
+	var syntax *json.SyntaxError
+	var typ *json.UnmarshalTypeError
+	return errors.As(err, &syntax) || errors.As(err, &typ)
+}
+
+// removeIfCorrupt re-reads and deletes only while the file is still
+// unparseable: between our read and this one another daemon may have written a
+// perfectly good marker, and that one is not ours to erase.
+func removeIfCorrupt() error {
+	if _, err := Read(); err == nil || !isCorrupt(err) {
+		return nil
+	}
+	return Remove()
 }
 
 // removeIfUnchanged deletes the marker only if it still holds exactly what we
@@ -177,7 +201,13 @@ func (m Marker) ForceStop() error {
 	if err != nil {
 		return err
 	}
-	return proc.Signal(syscall.SIGTERM)
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		return err
+	}
+	// Clear the marker too: the daemon we just signalled cannot be identified,
+	// so it will not be trusted to clean up after itself. Leaving the file
+	// behind would keep every later `status` reporting a daemon that is gone.
+	return removeIfUnchanged(m)
 }
 
 // Stop asks the daemon described by m to shut down, on behalf of asker.
