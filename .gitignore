@@ -1,0 +1,6 @@
+# build output
+/lifely
+/dist/
+
+# local editor noise
+.DS_Store

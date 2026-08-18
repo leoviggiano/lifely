@@ -1,0 +1,51 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+// A page on another site must not be able to reach the panel through the
+// browser, so the Host header is checked and not just the bind address.
+func TestLoopbackOnly(t *testing.T) {
+	tests := []struct {
+		host string
+		want int
+	}{
+		{"127.0.0.1:7777", http.StatusOK},
+		{"localhost:7777", http.StatusOK},
+		{"[::1]:7777", http.StatusOK},
+		{"lifely.example.com", http.StatusForbidden},
+		{"192.168.0.10:7777", http.StatusForbidden},
+		{"", http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+			req.Host = tt.host
+			rec := httptest.NewRecorder()
+			New(7777, "manual").ServeHTTP(rec, req)
+			if rec.Code != tt.want {
+				t.Errorf("Host %q = %d, want %d", tt.host, rec.Code, tt.want)
+			}
+		})
+	}
+}
+
+func TestHealthz(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.Host = "127.0.0.1:7777"
+	rec := httptest.NewRecorder()
+	New(7777, "tribunal").ServeHTTP(rec, req)
+
+	var got Health
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decoding /healthz: %v", err)
+	}
+	want := Health{Status: "ok", Version: Version, Port: 7777, Owner: "tribunal"}
+	if got != want {
+		t.Errorf("/healthz = %+v, want %+v", got, want)
+	}
+}

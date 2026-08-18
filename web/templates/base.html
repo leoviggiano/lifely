@@ -1,0 +1,17 @@
+{{/*
+  Casca do painel. As telas (Mesa, Menu, Projeto, Ticket, Fonte, Detalhe,
+  Despacho, Vazio) chegam nos tickets de UI; este arquivo só prova que o
+  binário serve os assets embutidos, sem toolchain de JS (FR4.11).
+*/}}
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ .Title }} · lifely</title>
+    <link rel="stylesheet" href="/static/lifely.css" />
+  </head>
+  <body>
+    {{ block "content" . }}{{ end }}
+  </body>
+</html>

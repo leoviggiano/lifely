@@ -1,0 +1,30 @@
+# .no-mistakes.yaml — house defaults (v2 · 2026-08-13)
+# Fonte canônica: ~/projects/artifacts/templates/no-mistakes-house.yaml
+# Copie para a raiz do repo como .no-mistakes.yaml, ajuste commands.* aos alvos
+# reais do repo e COMMITE — os campos de segurança valem só da default branch.
+#
+# v2: auto-fix DESLIGADO por decisão da casa (2.5.10) — o portão detecta e
+# classifica; quem corrige é o executor na sessão ject, com contexto, e o
+# conserto volta num re-push. Fix do agente frio do gate é commit sem sessão.
+agent: claude
+
+no_ci: true                     # derivado do repo: nao ha workflow de CI aqui (18-08-2026)
+                                # exists => false. If underivable, false is the safe side: a
+                                # gate expecting missing CI fails loudly; one ignoring real CI
+                                # fails silently (ject, 13-08: flag was false-from-birth as a
+                                # copied default; CI caught what the local suite missed).
+allow_repo_commands: false      # default, kept explicit: pushed branches can't inject commands
+disable_project_settings: true  # gate agents must not inherit this repo's AGENTS.md identity
+
+commands:
+  test: "go test ./..."
+  lint: "go vet ./..."
+  format: "gofmt -w ."
+
+auto_fix:                       # gate detects; ject fixes (house decision, 2.5.10)
+  rebase: 0
+  review: 0
+  test: 0
+  document: 0
+  lint: 0
+  ci: 0

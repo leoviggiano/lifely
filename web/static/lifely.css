@@ -1,0 +1,24 @@
+/* Design tokens do painel.
+ *
+ * A semântica é requisito, não decoração (spec FR4.10): a mesma cor significa
+ * a mesma coisa em todas as telas. As telas em si chegam nos tickets de UI;
+ * aqui ficam só os tokens, para que nasçam de uma fonte só.
+ */
+:root {
+  --lifely-bg: #1c1b19;          /* carvão neutro */
+  --lifely-surface: #24231f;
+  --lifely-text: #e8e6df;
+  --lifely-muted: #a5a196;
+
+  --lifely-accent: #8fce9f;      /* verde-sálvia — a identidade */
+  --lifely-ia: #b7a3dc;          /* lavanda — trabalho de IA */
+  --lifely-gate: #dabe4a;        /* âmbar — portão esperando */
+  --lifely-broken: #dc8290;      /* vermelho — quebrado, fonte ilegível */
+}
+
+body {
+  margin: 0;
+  background: var(--lifely-bg);
+  color: var(--lifely-text);
+  font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
