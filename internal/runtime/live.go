@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -177,11 +176,7 @@ func Running() (Marker, bool) {
 // isCorrupt separates "this file cannot be parsed" from "I could not read it
 // right now". Only the first is healed; the second is transient, and healing
 // it would delete a perfectly good marker over a passing error.
-func isCorrupt(err error) bool {
-	var syntax *json.SyntaxError
-	var typ *json.UnmarshalTypeError
-	return errors.As(err, &syntax) || errors.As(err, &typ)
-}
+func isCorrupt(err error) bool { return IsCorrupt(err) }
 
 // removeIfCorrupt re-reads and deletes only while the file is still
 // unparseable: between our read and this one another daemon may have written a

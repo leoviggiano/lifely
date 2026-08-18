@@ -212,7 +212,10 @@ func parseOwner(owner string) (runtime.Owner, error) {
 func status() error {
 	// Same distinction `stop` makes: no marker is an answer, an unreadable
 	// marker is not. Running() collapses both into false, so ask first.
-	if _, err := runtime.Peek(); err != nil && !errors.Is(err, runtime.ErrNoMarker) {
+	// A corrupt marker is not a dead end: Running() heals it and reports no
+	// daemon, which is the honest answer. Only a marker we could not READ --
+	// permissions, I/O -- is a failure the caller has to hear about.
+	if _, err := runtime.Peek(); err != nil && !errors.Is(err, runtime.ErrNoMarker) && !runtime.IsCorrupt(err) {
 		return fmt.Errorf("nao consegui ler o marcador do daemon: %w", err)
 	}
 	live, ok := runtime.Running()
@@ -264,6 +267,12 @@ func stop(args []string) error {
 	case errors.Is(err, runtime.ErrNoMarker):
 		fmt.Println("lifely nao esta de pe")
 		return nil
+	case runtime.IsCorrupt(err):
+		// Heal instead of dead-ending: an unparseable marker would otherwise
+		// make `stop` fail forever, and the file it trips on is ours to clear.
+		runtime.Running()
+		fmt.Println("marcador ilegivel foi descartado; lifely nao esta de pe")
+		return nil
 	case err != nil:
 		// A marker we could not read is not the same as no marker: saying
 		// "nao esta de pe" with exit 0 would tell a script the panel is down
@@ -287,40 +296,28 @@ func stop(args []string) error {
 		// message can say so honestly.
 		fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
 		return errRefused
-	case errors.Is(err, runtime.ErrForeign):
-		if *force && live.MayStop(asker) {
+	case errors.Is(err, runtime.ErrForeign), errors.Is(err, runtime.ErrUnidentified):
+		// One shape, not two: both mean "the pid is not a daemon we can act on
+		// normally", and the only difference is what we tell the caller.
+		what := "e de outro programa"
+		if errors.Is(err, runtime.ErrUnidentified) {
+			what = "nao pode ser identificado"
+		}
+		switch {
+		case *force && live.MayStop(asker):
 			if ferr := live.ForceStop(asker); ferr != nil {
 				return ferr
 			}
-			// Say what was attempted, not what was achieved: ForceStop clears
-			// the marker only if it has not changed under us, and claiming
-			// "limpo" when it may not be is the kind of confident wording this
-			// project has already been caught on.
-			fmt.Printf("pedido de limpeza do marcador do pid %d enviado (--force); o processo nao era lifely\n", live.PID)
+			fmt.Printf("pedido de limpeza do marcador do pid %d enviado (--force); o processo %s\n", live.PID, what)
 			return nil
-		}
-		if *force {
-			fmt.Printf("o pid %d no marcador e de outro programa, e a posse nao e sua: %v\n", live.PID, runtime.ErrNotOwner)
-			return errRefused
-		}
-		fmt.Printf("o pid %d no marcador e de outro programa: %v (use --force para limpar)\n", live.PID, err)
-		return errRefused
-	case errors.Is(err, runtime.ErrUnidentified):
-		if *force && live.MayStop(asker) {
-			if ferr := live.ForceStop(asker); ferr != nil {
-				return ferr
-			}
-			fmt.Printf("lifely (pid %d) parado por --force, sem confirmacao de identidade\n", live.PID)
-			return nil
-		}
-		if *force {
+		case *force:
 			// The flag was given and the guard still refused: it was
-			// ownership, not identity. Suggesting --force again would send
-			// the caller in a circle.
+			// ownership, not identity. Suggesting --force again would send the
+			// caller in a circle.
 			fmt.Printf("lifely nao mexeu no pid %d: %v\n", live.PID, runtime.ErrNotOwner)
-			return errRefused
+		default:
+			fmt.Printf("lifely nao mexeu no pid %d: o processo %s (%v) -- use --force se tiver certeza\n", live.PID, what, err)
 		}
-		fmt.Printf("lifely nao mexeu no pid %d: %v (use --force se tiver certeza)\n", live.PID, err)
 		return errRefused
 	}
 	return err

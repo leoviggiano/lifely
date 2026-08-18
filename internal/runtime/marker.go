@@ -165,6 +165,15 @@ func WriteIfUnchanged(seen, next Marker) error {
 	return Write(next)
 }
 
+// IsCorrupt reports whether an error from Read/Peek means the file cannot be
+// parsed -- as opposed to could not be read right now. The first is healable;
+// the second is a real failure the caller must hear about.
+func IsCorrupt(err error) bool {
+	var syntax *json.SyntaxError
+	var typ *json.UnmarshalTypeError
+	return errors.As(err, &syntax) || errors.As(err, &typ)
+}
+
 // ErrChanged reports that the marker moved under a compare-and-set.
 var ErrChanged = errors.New("the daemon marker changed while we were reading it")
 

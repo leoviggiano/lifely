@@ -115,3 +115,32 @@ func TestForceDoesNotBypassOwnership(t *testing.T) {
 		t.Errorf("the forced stop touched the marker: %+v (%v)", got, rerr)
 	}
 }
+
+// A corrupt marker must not be a dead end.
+//
+// Making `status` and `stop` stop swallowing read errors was right; it also
+// undid the heal-instead-of-tripping-forever invariant, because both commands
+// began failing before Running() could clear the file. Two correct fixes that
+// cancelled each other.
+func TestCorruptMarkerIsHealedNotADeadEnd(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	path, err := runtime.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{ isto nao e json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := status(); err != nil {
+		t.Errorf("status() with a corrupt marker = %v, want nil", err)
+	}
+	if err := stop([]string{"--owner", "manual"}); err != nil {
+		t.Errorf("stop with a corrupt marker = %v, want nil", err)
+	}
+	if _, err := runtime.Read(); err != runtime.ErrNoMarker {
+		t.Errorf("the corrupt marker survived both commands: %v", err)
+	}
+}
