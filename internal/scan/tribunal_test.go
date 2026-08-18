@@ -214,8 +214,7 @@ func TestLifeMarkerTitleIsNotDoubled(t *testing.T) {
 func TestTruncationCutsRunesNotBytes(t *testing.T) {
 	long := strings.Repeat("ç", 200)
 	for name, got := range map[string]string{
-		"excerpt":       excerpt(long),
-		"firstSentence": firstSentence(long),
+		"excerpt": excerpt(long),
 	} {
 		if strings.ContainsRune(got, '\uFFFD') {
 			t.Errorf("%s produced a broken rune", name)

@@ -149,3 +149,36 @@ func TestLedgerRowsWithoutIdDoNotCollide(t *testing.T) {
 		t.Errorf("two rows share the id %q -- one disappears from the panel", got[0].ID)
 	}
 }
+
+// Removing the positional counter from the A1 identity was right; removing the
+// LANE with it was not. The same title under two faixas is two different
+// items — one waits on the founder, the other on an agent.
+func TestFounderBoardSameTitleInTwoLanes(t *testing.T) {
+	root := t.TempDir()
+	board := "## Faixa 1\n\n- [ ] **Higiene do repo**\n\n## Faixa 3\n\n- [ ] **Higiene do repo**\n"
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(board), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 2 {
+		t.Fatalf("got %d items, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("the same title in two lanes shares the id %q", got[0].ID)
+	}
+}
+
+// A ledger that HAS an id column but leaves it blank on a row must still
+// disambiguate that row: the presence of the header is not the presence of a key.
+func TestLedgerWithBlankIdStillDisambiguates(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"),
+		"# id\tprojeto\ttitulo\tstatus\n\tlifely\trevisar\tpendente\n\tject\trevisar\tpendente\n")
+	got := find(Tribunal(root).Pendencies, "A2")
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("two rows with blank ids share %q", got[0].ID)
+	}
+}
