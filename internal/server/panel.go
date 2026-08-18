@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -40,15 +41,32 @@ func NewPanel(root string, run scan.Runner) *Panel {
 
 // sweep returns a fresh view, or the one from a moment ago.
 func (p *Panel) sweep() *snapshot {
+	// The lock guards the cache, never the scan.
+	//
+	// Holding it across scan.All meant every concurrent request queued behind
+	// a multi-second sweep that walks the record repo and shells out per
+	// ticket -- one slow source and the whole panel stops answering, including
+	// /healthz-style reads that need nothing from it.
+	p.mu.Lock()
+	if p.cached != nil && p.now().Sub(p.cachedAt) < p.TTL {
+		defer p.mu.Unlock()
+		return p.cached
+	}
+	p.mu.Unlock()
+
+	res, graph := scan.All(p.Root, p.Run)
+	fresh := &snapshot{Result: res, Graph: graph}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Another request may have swept while we were out of the lock. Either
+	// answer is honest -- both were computed just now -- so keep the one
+	// already published and let this one go.
 	if p.cached != nil && p.now().Sub(p.cachedAt) < p.TTL {
 		return p.cached
 	}
-	res, graph := scan.All(p.Root, p.Run)
-	p.cached = &snapshot{Result: res, Graph: graph}
-	p.cachedAt = p.now()
-	return p.cached
+	p.cached, p.cachedAt = fresh, p.now()
+	return fresh
 }
 
 // Invalidate drops the cached sweep. Anything that changes a source calls it,
@@ -176,9 +194,16 @@ func (p *Panel) projects(w http.ResponseWriter, r *http.Request) {
 			byslug[slug].Blocked++
 		}
 	}
+	// Deterministic order: Go randomises map iteration, and a list that
+	// reshuffles between requests reads as if something changed.
+	slugs := make([]string, 0, len(byslug))
+	for slug := range byslug {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
 	out := []project{}
-	for _, pr := range byslug {
-		out = append(out, *pr)
+	for _, slug := range slugs {
+		out = append(out, *byslug[slug])
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": out, "graph": snap.Graph})
 }

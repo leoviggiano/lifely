@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -137,5 +138,38 @@ func TestCacheIsShortAndDroppable(t *testing.T) {
 	fake = fake.Add(10 * time.Second)
 	if aged := p.sweep(); aged == fresh {
 		t.Error("the cache outlived its TTL")
+	}
+}
+
+// The lock guards the cache, never the scan.
+//
+// Holding it across the whole sweep made every concurrent request queue behind
+// a multi-second walk of the record repo -- one slow source and the panel
+// stops answering everything.
+func TestConcurrentSweepsDoNotSerialize(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte("## Faixa 1\n\n- [ ] **algo**\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const slow = 150 * time.Millisecond
+	p := NewPanel(root, func(args ...string) ([]byte, error) {
+		time.Sleep(slow)
+		return []byte(`{"tickets":[]}`), nil
+	})
+	p.TTL = 0 // never serve from cache: every call really sweeps
+
+	const callers = 4
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); p.sweep() }()
+	}
+	wg.Wait()
+
+	// Serialised, this would cost callers*slow. In parallel it costs about one.
+	if elapsed := time.Since(start); elapsed > slow*time.Duration(callers-1) {
+		t.Errorf("%d concurrent sweeps took %v: they queued behind the lock", callers, elapsed)
 	}
 }
