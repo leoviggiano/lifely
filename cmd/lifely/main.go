@@ -271,6 +271,13 @@ func stop(args []string) error {
 		// Heal instead of dead-ending: an unparseable marker would otherwise
 		// make `stop` fail forever, and the file it trips on is ours to clear.
 		runtime.Running()
+		if _, still := runtime.Peek(); runtime.IsCorrupt(still) {
+			// Say what is true: the healing may fail (permissions, a racing
+			// writer), and claiming "descartado" would send the caller away
+			// believing a file that is still there is gone.
+			fmt.Println("marcador ilegivel e nao consegui descarta-lo; lifely nao esta de pe")
+			return nil
+		}
 		fmt.Println("marcador ilegivel foi descartado; lifely nao esta de pe")
 		return nil
 	case err != nil:
@@ -308,7 +315,16 @@ func stop(args []string) error {
 			if ferr := live.ForceStop(asker); ferr != nil {
 				return ferr
 			}
-			fmt.Printf("pedido de limpeza do marcador do pid %d enviado (--force); o processo %s\n", live.PID, what)
+			// The two cases do different things and the caller has to know
+			// which: for a pid we identified as somebody else's, only the
+			// marker is cleared; for a pid we could not identify, a SIGTERM
+			// is sent. Merging the branches was right; merging the message
+			// hid a signal behind the word "limpeza".
+			if errors.Is(err, runtime.ErrForeign) {
+				fmt.Printf("marcador do pid %d descartado (--force); o processo %s e segue rodando\n", live.PID, what)
+			} else {
+				fmt.Printf("SIGTERM enviado ao pid %d (--force); o processo %s\n", live.PID, what)
+			}
 			return nil
 		case *force:
 			// The flag was given and the guard still refused: it was

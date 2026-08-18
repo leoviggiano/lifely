@@ -154,7 +154,7 @@ func Running() (Marker, bool) {
 		// meanwhile: an unconditional Remove here would erase a marker another
 		// daemon wrote in the window -- the very erasure this file spends two
 		// other functions preventing. A transient read error is not corruption.
-		if isCorrupt(err) {
+		if IsCorrupt(err) {
 			// A failure to heal is worth knowing about -- it means every
 			// later serve will trip over the same file -- but it must not
 			// turn "no daemon" into an error for the caller.
@@ -176,13 +176,11 @@ func Running() (Marker, bool) {
 // isCorrupt separates "this file cannot be parsed" from "I could not read it
 // right now". Only the first is healed; the second is transient, and healing
 // it would delete a perfectly good marker over a passing error.
-func isCorrupt(err error) bool { return IsCorrupt(err) }
-
 // removeIfCorrupt re-reads and deletes only while the file is still
 // unparseable: between our read and this one another daemon may have written a
 // perfectly good marker, and that one is not ours to erase.
 func removeIfCorrupt() error {
-	if _, err := Read(); err == nil || !isCorrupt(err) {
+	if _, err := Read(); err == nil || !IsCorrupt(err) {
 		return nil
 	}
 	return Remove()

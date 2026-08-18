@@ -279,7 +279,7 @@ func TestTransferRefusesWhenTheDaemonMovedUnderUs(t *testing.T) {
 // A transient read error is not corruption: healing it would delete a good
 // marker over a passing failure.
 func TestOnlyUnparseableMarkersAreHealed(t *testing.T) {
-	if isCorrupt(os.ErrPermission) {
+	if IsCorrupt(os.ErrPermission) {
 		t.Error("a permission error was classified as corruption")
 	}
 }
