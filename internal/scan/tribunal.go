@@ -169,6 +169,18 @@ func faixaBlocker(faixa string) pendency.Blocker {
 // two long items collapse. The bold title is the source's own answer to "what
 // is this item called", so it is the key -- and when there is no bold title,
 // the whole line is, because then nothing shorter is safe.
+// boardKey returns the part of a board line that names the item.
+//
+// Same rule the ledger identity follows, stated once for both: key on what the
+// SOURCE says names the item, and accept a collision where the source itself
+// is ambiguous. The board's convention is `**Título** — nota`, so the bold
+// title is the name and the note is commentary that ages; a ledger has no such
+// convention, so everything the row says about itself is the name.
+//
+// Cost, declared: two board items with the same bold title in the same faixa
+// become one pendency. That is the source calling two things by one name --
+// visible to a human reading the board too -- and inventing a distinction here
+// would hide it.
 func boardKey(line string) string {
 	// Only the bold that OPENS the item counts. Taking any bold run in the
 	// line would key `- [ ] fazer X — **urgente** hoje` on "urgente", and two
