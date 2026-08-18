@@ -339,9 +339,13 @@ func distinguishingColumn(header []string, rows [][]string, idx []int) int {
 				ok = false
 				break
 			}
-			v := strings.TrimSpace(rows[i][col])
+			raw := strings.TrimSpace(rows[i][col])
+			// Validate the value that will actually be USED: disambiguate
+			// keys on the slug, so two raw values that slug alike -- or slug
+			// to nothing -- would pass a raw check and still collide.
+			v := pendency.Slug(raw)
 			// A date distinguishes today and moves the identity tomorrow.
-			if v == "" || looksLikeDate(v) || seen[v] {
+			if v == "" || looksLikeDate(raw) || seen[v] {
 				ok = false
 				break
 			}
@@ -452,6 +456,13 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		// A repository with no sessions/ yet is normal absence, the same call
+		// this function already makes for a round without a summary. Two
+		// answers to the same kind of fact, in one function, was the
+		// incoherence the panel kept showing.
+		if os.IsNotExist(err) {
+			return nil, state
+		}
 		state.Err = err.Error()
 		return nil, state
 	}
@@ -575,13 +586,15 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		// normal absence, the same call the summary makes, and reporting it as
 		// ILEGIVEL trains the reader to ignore the marker that should always
 		// mean something.
+		// Ask the filesystem, not git's prose: git ships translated messages,
+		// so matching "not a git repository" breaks under any other locale.
+		if _, statErr := os.Stat(filepath.Join(root, ".git")); os.IsNotExist(statErr) {
+			return nil, state
+		}
 		var ee *exec.ExitError
 		stderr := ""
 		if errors.As(err, &ee) {
 			stderr = strings.TrimSpace(string(ee.Stderr))
-		}
-		if strings.Contains(stderr, "not a git repository") {
-			return nil, state
 		}
 		// Keep git's own words: "exit status 128" alone says nothing about
 		// whether the root is unreadable, or something else entirely.
@@ -637,11 +650,17 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 	for sc.Scan() {
 		line++
 		text := sc.Text()
+		m, rest, ok := openMarker(text)
 		if strings.HasPrefix(text, "#") {
 			heading = strings.TrimSpace(strings.TrimLeft(text, "# "))
-			continue
+			// A heading that itself RAISES a question is both: it sets the
+			// context and it is an item. Skipping it because it starts with
+			// '#' dropped exactly the markers that someone bothered to
+			// promote to a heading.
+			if !ok {
+				continue
+			}
 		}
-		m, rest, ok := openMarker(text)
 		if !ok {
 			continue
 		}

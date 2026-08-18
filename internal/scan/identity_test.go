@@ -200,3 +200,35 @@ func TestTiebreakerMustActuallyDistinguish(t *testing.T) {
 		t.Errorf("the tiebreaker did not distinguish: both rows are %q", got[0].ID)
 	}
 }
+
+// A heading that itself raises a question is both context and item. Skipping
+// every '#' line dropped exactly the markers someone bothered to promote.
+func TestHeadingThatOpensWithAMarkerIsAnItem(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "life.md"),
+		[]byte("# life\n\n## [ABERTO] onde passa a fronteira?\n\ntexto\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A6")
+	if len(got) != 1 {
+		t.Fatalf("got %d markers, want 1 -- the heading was dropped", len(got))
+	}
+	if !strings.Contains(got[0].Title, "fronteira") {
+		t.Errorf("title = %q", got[0].Title)
+	}
+}
+
+// A repository with no sessions/ directory is normal absence, not a source
+// that could not be read -- the same answer this scanner gives for a round
+// without a summary.
+func TestMissingSessionsDirectoryIsNotAFinding(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte("## Faixa 1\n\n- [ ] **algo**\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range Tribunal(root).Sources {
+		if strings.Contains(s.Name, "summary") && s.Err != "" {
+			t.Errorf("a missing sessions/ was reported as unreadable: %q", s.Err)
+		}
+	}
+}
