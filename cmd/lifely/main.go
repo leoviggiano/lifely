@@ -14,10 +14,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/leoviggiano/lifely/internal/pendency"
 	"github.com/leoviggiano/lifely/internal/runtime"
+	scanpkg "github.com/leoviggiano/lifely/internal/scan"
 	"github.com/leoviggiano/lifely/internal/server"
 )
 
@@ -38,6 +41,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "serve":
 		return serve(args[1:])
+	case "scan":
+		return scanCmd(args[1:])
 	case "status":
 		return status()
 	case "stop":
@@ -56,6 +61,7 @@ func usage() {
 
 Uso:
   lifely serve [--port N] [--owner tribunal|manual]   sobe o painel
+  lifely scan [--root DIR]                            varre e imprime a mesa
   lifely status                                       diz se ha painel de pe
   lifely stop [--owner tribunal|manual]               derruba o painel
 `)
@@ -171,4 +177,72 @@ func stop(args []string) error {
 	}
 	fmt.Printf("lifely (pid %d, dono: %s) recebeu o pedido de parada\n", live.PID, live.Owner)
 	return nil
+}
+
+// scanCmd prints one sweep to the terminal.
+//
+// The panel is the real surface, but a sweep has to be inspectable before any
+// UI exists -- a discovery bug is far easier to see in a flat list than in a
+// rendered page.
+func scanCmd(args []string) error {
+	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
+	root := fs.String("root", defaultRoot(), "the record repository to sweep")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	res := scanpkg.Tribunal(*root)
+	if len(res.Pendencies) == 0 {
+		fmt.Println("Nada pendente. As fontes foram varridas agora e nada espera decisao. Zero e resultado.")
+		return nil
+	}
+
+	fmt.Printf("%d pendencias · varrido as %s\n", len(res.Pendencies), res.At.Format("15:04"))
+	for _, g := range []pendency.Blocker{pendency.Founder, pendency.Gate, pendency.AI, pendency.Hygiene} {
+		var inGroup []pendency.Pendency
+		for _, p := range res.Pendencies {
+			if p.Blocks == g {
+				inGroup = append(inGroup, p)
+			}
+		}
+		if len(inGroup) == 0 {
+			continue
+		}
+		fmt.Printf("\n%s (%d)\n", groupLabel[g], len(inGroup))
+		for _, p := range inGroup {
+			fmt.Printf("  %-48s %s\n", trim(p.Title, 48), p.Source)
+		}
+	}
+
+	fmt.Print("\nFONTES\n")
+	for _, s := range res.Sources {
+		if s.Err != "" {
+			fmt.Printf("  %-30s ILEGIVEL: %s\n", s.Name, s.Err)
+			continue
+		}
+		fmt.Printf("  %-30s %d\n", s.Name, s.Count)
+	}
+	return nil
+}
+
+var groupLabel = map[pendency.Blocker]string{
+	pendency.Founder: "ESPERANDO O FUNDADOR",
+	pendency.Gate:    "GATES ESPERANDO RESPOSTA",
+	pendency.AI:      "IA PREPARA",
+	pendency.Hygiene: "HIGIENE",
+}
+
+func defaultRoot() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return filepath.Join(home, "projects", "artifacts")
+}
+
+func trim(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }
