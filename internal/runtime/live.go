@@ -135,6 +135,12 @@ func (m Marker) Live() bool {
 func Running() (Marker, bool) {
 	m, err := Read()
 	if err != nil {
+		// A marker we cannot parse is worse than none: it can never be healed
+		// by a probe, and every future `serve` would keep tripping over it.
+		// Absent is the honest state, so make it true.
+		if !errors.Is(err, ErrNoMarker) {
+			_ = Remove()
+		}
 		return Marker{}, false
 	}
 	if !m.Live() {

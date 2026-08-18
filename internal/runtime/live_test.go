@@ -158,3 +158,26 @@ func TestStopRefusesForeignDaemon(t *testing.T) {
 		t.Errorf("tribunal stopping a manual daemon = %v, want ErrNotOwner", err)
 	}
 }
+
+// A marker that cannot be parsed can never be healed by probing: no pid to
+// check, no owner to compare. Leaving it makes every future `serve` trip over
+// the same corrupt file, so Running clears it.
+func TestRunningHealsACorruptMarker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	path, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{ isto nao e json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := Running(); ok {
+		t.Fatal("a corrupt marker was reported as a running daemon")
+	}
+	if _, err := Read(); err != ErrNoMarker {
+		t.Errorf("the corrupt marker survived: Read() = %v, want ErrNoMarker", err)
+	}
+}
