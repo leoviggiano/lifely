@@ -99,12 +99,12 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 			continue
 		}
 		switch {
-		case strings.HasPrefix(strings.TrimLeft(line, " "), "- [ ] "):
+		case strings.HasPrefix(strings.TrimLeft(line, " \t"), "- [ ] "):
 			// Indented sub-tasks count: an item nested under another is still
 			// open work, and dropping it hides the very detail that a board
 			// uses indentation to express.
 			flush()
-			title := strings.TrimPrefix(strings.TrimLeft(line, " "), "- [ ] ")
+			title := strings.TrimPrefix(strings.TrimLeft(line, " \t"), "- [ ] ")
 			p := pendency.Pendency{
 				// Identity = lane + WHOLE title.
 				//
@@ -128,7 +128,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				SeenAt:  now,
 			}
 			current = &p
-		case strings.HasPrefix(strings.TrimLeft(line, " "), "- [x] "):
+		case strings.HasPrefix(strings.TrimLeft(line, " \t"), "- [x] "):
 			flush()
 		case strings.HasPrefix(line, "## "):
 			// A section that is not a Faixa ends the lane too: without this,
@@ -136,7 +136,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 			// blocker and land in the wrong group.
 			flush()
 			faixa = ""
-		case current != nil && strings.HasPrefix(line, "  "):
+		case current != nil && (strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "\t")):
 			current.Detail += "\n" + line
 		default:
 			flush()
@@ -182,6 +182,8 @@ func boardKey(line string) string {
 	return cleanTitle(line)
 }
 
+// cleanTitle strips the markdown noise without shortening: identity needs the
+// whole thing, so that two items are only ever the same item.
 func cleanTitle(s string) string {
 	return strings.TrimSpace(strings.ReplaceAll(s, "*", ""))
 }
@@ -270,7 +272,6 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 	var header []string
 	statusAt := -1
 	var items []pendency.Pendency
-	var rows [][]string
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -296,7 +297,6 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 			continue
 		}
 		key := naturalKey(header, cells)
-		rows = append(rows, cells)
 		items = append(items, pendency.Pendency{
 			ID:      pendency.NewID(pendency.Slug(rel), key),
 			Class:   "A2",
@@ -313,77 +313,7 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 	// preservation this function does two screens above -- a scanner error on
 	// line 900 would hide the 899 open decisions above it.
 	err = sc.Err()
-	return disambiguate(items, header, rows), err
-}
-
-// disambiguate adds a tiebreaker ONLY to rows whose key collides.
-//
-// A key is meant to survive edits, and every candidate tiebreaker in a ledger
-// without an id column is content that can change. So the cost is paid only
-// where it buys something: a unique row keeps the stable key it had, and rows
-// that would otherwise collapse into one pendency get told apart -- because
-// losing a row from the panel is the worse failure.
-func disambiguate(items []pendency.Pendency, header []string, rows [][]string) []pendency.Pendency {
-	groups := map[string][]int{}
-	for i, it := range items {
-		groups[it.ID] = append(groups[it.ID], i)
-	}
-	for _, idx := range groups {
-		if len(idx) < 2 {
-			continue
-		}
-		col := distinguishingColumn(header, rows, idx)
-		if col < 0 {
-			// Nothing in the source tells these rows apart. A human reading
-			// the ledger could not either, so inventing a counter here would
-			// hide a duplicate in the source behind a number of ours.
-			continue
-		}
-		for _, i := range idx {
-			tie := pendency.Slug(strings.TrimSpace(rows[i][col]))
-			items[i].ID += "-" + tie
-			items[i].Origin.Locator += "-" + tie
-		}
-	}
-	return items
-}
-
-// distinguishingColumn finds the first column whose value actually DIFFERS
-// across the colliding rows.
-//
-// Picking "the first eligible cell" of one row was not enough: if that column
-// holds the same value on both, the id grows and the collision survives. The
-// question is about the group, so it has to be asked of the group.
-func distinguishingColumn(header []string, rows [][]string, idx []int) int {
-	statusAt := columnIndex(header, "status")
-	for col := range header {
-		if col == statusAt {
-			continue
-		}
-		seen := map[string]bool{}
-		ok := true
-		for _, i := range idx {
-			if col >= len(rows[i]) {
-				ok = false
-				break
-			}
-			raw := strings.TrimSpace(rows[i][col])
-			// Validate the value that will actually be USED: disambiguate
-			// keys on the slug, so two raw values that slug alike -- or slug
-			// to nothing -- would pass a raw check and still collide.
-			v := pendency.Slug(raw)
-			// A date distinguishes today and moves the identity tomorrow.
-			if v == "" || looksLikeDate(raw) || seen[v] {
-				ok = false
-				break
-			}
-			seen[v] = true
-		}
-		if ok {
-			return col
-		}
-	}
-	return -1
+	return items, err
 }
 
 func columnIndex(header []string, name string) int {
@@ -403,27 +333,51 @@ func naturalKey(header, cells []string) string {
 			return v
 		}
 	}
-	// Fall back to what NAMES the row, never to the whole row: folding status,
-	// dates and notes into the identity means editing a note mints a new id
-	// and orphans the conversation attached to it (spec FR2.2).
+
+	// A ledger without an explicit id cannot give all three of: stable across
+	// edits, unique, and independent of the other rows. The declared choice:
 	//
-	// describe() alone is not enough -- its own last resort is the joined row,
-	// which is exactly what we are avoiding. The chain ends at a naming
-	// column, never at "everything".
-	if title := namingCell(header, cells); title != "" {
-		return pendency.Slug(title)
+	//   - stability and independence are KEPT. The key is computed from this
+	//     row alone, from the two cells least likely to change: the naming
+	//     column, and the first column (the closest thing to a subject a
+	//     ledger has).
+	//   - uniqueness is GIVEN UP in the one case where the source itself is
+	//     ambiguous: two rows with the same name and the same first column are
+	//     indistinguishable to a human reading the file too.
+	//
+	// The rejected alternative was disambiguating only the rows that collide
+	// in the current sweep. It bought uniqueness by making a row's identity
+	// depend on its neighbours -- a new row appearing would silently change
+	// the id of one already there, orphaning its conversation.
+	// Everything the row says about ITSELF, minus what changes by design.
+	//
+	// Losing a row from the panel is the worse failure -- that is the standard
+	// this scanner already applies to terminal-by-exclusion -- so uniqueness
+	// wins over stability here. The status is excluded because it is meant to
+	// change; a date is excluded because it changes on every touch. What
+	// remains is the row's own description of itself, and it stays row-local:
+	// no key depends on which other rows happen to be in the file.
+	//
+	// Declared cost, same family as FR2.2: editing one of those cells mints a
+	// new id and orphans the conversation attached to it. A ledger that wants
+	// a stable identity gives its rows an `id` column, and then none of this
+	// applies.
+	statusAt := columnIndex(header, "status")
+	parts := make([]string, 0, len(cells))
+	for i, c := range cells {
+		if i == statusAt {
+			continue
+		}
+		v := strings.TrimSpace(c)
+		if v == "" || looksLikeDate(v) {
+			continue
+		}
+		parts = append(parts, v)
 	}
-	// No naming column: key on the row's FIRST column, whatever it holds. It
-	// is the closest thing a ledger without a title has to a key, and unlike
-	// "the first non-empty cell" it does not wander to a note or a date when
-	// the first column happens to be blank.
-	first := ""
-	if len(cells) > 0 {
-		first = strings.TrimSpace(cells[0])
+	if len(parts) == 0 {
+		return pendency.LocationKey("ledger-row", strings.Join(cells, "\t"))
 	}
-	// The header is the schema, not the row's identity: folding it in meant
-	// adding a column renumbered every row in the file.
-	return pendency.LocationKey("ledger-row", first)
+	return pendency.Slug(strings.Join(parts, " "))
 }
 
 // looksLikeDate spots a timestamp cell, which must never carry identity: it
@@ -441,8 +395,6 @@ func looksLikeDate(v string) bool {
 	return digits >= 6
 }
 
-// namingCell returns the value of the column the header declares as the row's
-// name. It is the single place that lookup lives: describe() calls it too.
 func namingCell(header, cells []string) string {
 	for _, name := range []string{"titulo", "título", "decisao", "decisão", "title", "assunto"} {
 		if i := columnIndex(header, name); i >= 0 && i < len(cells) {

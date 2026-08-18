@@ -23,27 +23,27 @@ func TestObsidianURIEscapesQueryMetacharacters(t *testing.T) {
 	}
 }
 
-// Skipping date-shaped cells is not enough: the scan keeps walking and can
-// land on another volatile column. The identity has to come from a column the
-// header NAMES, or from a stable location -- never from "whatever came next".
-func TestNaturalKeyDoesNotLandOnAVolatileColumn(t *testing.T) {
+// What the ledger identity DOES promise, stated as a test.
+//
+// Stable across edits, unique, and independent of the other rows cannot all
+// hold without an explicit id column. The declared choice keeps uniqueness and
+// row-locality; stability is promised only against the two cells that change
+// by design -- the status and any date.
+func TestNaturalKeyIgnoresStatusAndDates(t *testing.T) {
 	root := t.TempDir()
-	const header = "# projeto\tstatus\tatualizado\tnota\n"
+	const header = "# projeto\ttitulo\tatualizado\tstatus\n"
 
-	write(t, filepath.Join(root, "fila.tsv"), header+"\tpendente\t2026-08-18\tprimeira nota\n")
+	write(t, filepath.Join(root, "fila.tsv"), header+"lifely\trevisar spec\t2026-08-18\tpendente\n")
 	first := find(Tribunal(root).Pendencies, "A2")
-	if len(first) != 1 {
-		t.Fatalf("got %d rows, want 1", len(first))
-	}
 
-	// The naming column is empty and the date changed; only the note differs.
-	write(t, filepath.Join(root, "fila.tsv"), header+"\tpendente\t2026-09-30\tnota reescrita\n")
+	write(t, filepath.Join(root, "fila.tsv"), header+"lifely\trevisar spec\t2026-09-30\tem-refino\n")
 	second := find(Tribunal(root).Pendencies, "A2")
-	if len(second) != 1 {
-		t.Fatalf("got %d rows, want 1", len(second))
+
+	if len(first) != 1 || len(second) != 1 {
+		t.Fatalf("got %d then %d rows, want 1 each", len(first), len(second))
 	}
 	if first[0].ID != second[0].ID {
-		t.Errorf("identity moved with a note edit: %q became %q", first[0].ID, second[0].ID)
+		t.Errorf("status or date moved the identity: %q became %q", first[0].ID, second[0].ID)
 	}
 }
 
@@ -258,20 +258,41 @@ func TestFounderBoardIdentityIgnoresTheTrailingNote(t *testing.T) {
 	}
 }
 
-// Adding a column to a ledger must not renumber every row in it: the header is
-// the schema, not the row's identity.
-func TestLedgerKeySurvivesANewColumn(t *testing.T) {
+// The cost of that choice, pinned so nobody "fixes" it back by accident.
+//
+// Editing a cell the key is built from DOES mint a new id and orphan the
+// conversation attached to it. Deliberate: a row that disappears from the
+// panel is a decision the founder never sees, while an orphaned conversation
+// still leaves the item on screen. The way out lives in the source -- give the
+// ledger an `id` column -- not here.
+func TestLedgerIdentityMovesWithContent_AcceptedCost(t *testing.T) {
 	root := t.TempDir()
-	write(t, filepath.Join(root, "fila.tsv"), "# projeto\tstatus\nlifely\tpendente\n")
+	write(t, filepath.Join(root, "fila.tsv"), "# projeto\ttitulo\tstatus\nlifely\trevisar\tpendente\n")
 	before := find(Tribunal(root).Pendencies, "A2")
-	write(t, filepath.Join(root, "fila.tsv"), "# projeto\tstatus\tresponsavel\nlifely\tpendente\tana\n")
+	write(t, filepath.Join(root, "fila.tsv"), "# projeto\ttitulo\tstatus\nlifely\trevisar tudo\tpendente\n")
+	after := find(Tribunal(root).Pendencies, "A2")
+
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatalf("got %d then %d rows, want 1 each", len(before), len(after))
+	}
+	if before[0].ID == after[0].ID {
+		t.Error("the id survived a content edit -- if that is now intended, the trade-off comment in naturalKey is stale")
+	}
+}
+
+// With an id column none of that applies: the identity IS the id.
+func TestLedgerWithAnIdColumnIsFullyStable(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"), "# id\tprojeto\ttitulo\tstatus\nX1\tlifely\trevisar\tpendente\n")
+	before := find(Tribunal(root).Pendencies, "A2")
+	write(t, filepath.Join(root, "fila.tsv"), "# id\tprojeto\ttitulo\tstatus\tnota\nX1\tlifely\trevisar tudo\tem-refino\toutra\n")
 	after := find(Tribunal(root).Pendencies, "A2")
 
 	if len(before) != 1 || len(after) != 1 {
 		t.Fatalf("got %d then %d rows, want 1 each", len(before), len(after))
 	}
 	if before[0].ID != after[0].ID {
-		t.Errorf("a new column changed the row id: %q became %q", before[0].ID, after[0].ID)
+		t.Errorf("an explicit id did not hold the identity: %q became %q", before[0].ID, after[0].ID)
 	}
 }
 
