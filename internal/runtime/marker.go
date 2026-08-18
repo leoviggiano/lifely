@@ -105,18 +105,22 @@ func Claim(m Marker) error {
 	if err != nil {
 		return err
 	}
+	// Marshal BEFORE creating the file: with O_EXCL the file becomes visible
+	// the instant it exists, so anything done between create and write is a
+	// window where a reader sees a zero-length marker and calls it corrupt --
+	// and the healing path would then delete the registration of a daemon
+	// that is coming up right now. (The window is too narrow for a test to
+	// observe reliably; the ordering is the guarantee, not the assertion.)
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return ErrAlreadyRunning
 		}
 		return err
-	}
-	data, mErr := json.Marshal(m)
-	if mErr != nil {
-		f.Close()
-		_ = os.Remove(path)
-		return mErr
 	}
 	if _, err := f.Write(data); err != nil {
 		f.Close()
@@ -170,27 +174,18 @@ var ErrChanged = errors.New("the daemon marker changed while we were reading it"
 // path (every /healthz), a lookup must not have the side effect of making a
 // directory.
 func Peek() (Marker, error) {
-	path, err := pathNoCreate()
-	if err != nil {
-		return Marker{}, err
-	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return Marker{}, ErrNoMarker
-	}
-	if err != nil {
-		return Marker{}, err
-	}
-	var m Marker
-	if err := json.Unmarshal(data, &m); err != nil {
-		return Marker{}, err
-	}
-	return m, nil
+	return readFrom(pathNoCreate)
 }
 
 // Read returns the registered daemon, or ErrNoMarker when there is none.
 func Read() (Marker, error) {
-	path, err := Path()
+	return readFrom(Path)
+}
+
+// readFrom is the one body Read and Peek share: they differ only in whether
+// looking is allowed to create the directory on the way.
+func readFrom(locate func() (string, error)) (Marker, error) {
+	path, err := locate()
 	if err != nil {
 		return Marker{}, err
 	}

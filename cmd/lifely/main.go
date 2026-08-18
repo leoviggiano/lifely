@@ -87,11 +87,10 @@ func serve(args []string) error {
 	// scan of the same sources and split the founder's attention between two
 	// URLs. Reuse what is already up and say where it is (spec FR7.4).
 	//
-	// This check is the friendly path, not a lock: two `serve` calls can pass
-	// it at the same moment. Binding the port below narrows the race, but only
-	// between callers asking for the SAME port -- two `serve --port` on
-	// different ports both bind and both register, and the last write wins.
-	// One instance is a convention here, not an enforced invariant.
+	// This check is the friendly path, not the lock. The lock is runtime.Claim
+	// below: an exclusive create, decided by the filesystem for every caller
+	// at once, including two `serve --port` asking for different ports. This
+	// check exists to give a good message, not to guarantee anything.
 	if live, ok := runtime.Running(); ok {
 		// The FR7.3 guarantee lives in runtime.TakeOver, not here: a copy of
 		// this decision inline would be a second implementation, and the test
@@ -134,7 +133,19 @@ func serve(args []string) error {
 		if errors.Is(err, runtime.ErrAlreadyRunning) {
 			// Another daemon won the race between our Running() check and
 			// here. One instance, decided by the filesystem (spec FR7.4).
-			fmt.Println("outro lifely subiu primeiro; reusando o dele")
+			//
+			// Re-read and run the same take-over as the normal reuse path:
+			// losing a race must not cost the founder the ownership transfer
+			// he would have got a millisecond earlier.
+			live, ok := runtime.Running()
+			if !ok {
+				return fmt.Errorf("outro lifely subiu e saiu enquanto eu registrava; tente de novo")
+			}
+			if live, moved, terr := runtime.TakeOver(live, who); terr == nil && moved {
+				fmt.Printf("outro lifely subiu primeiro em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua\n", live.Port)
+			} else {
+				fmt.Printf("outro lifely subiu primeiro em http://127.0.0.1:%d (dono: %s) -- reusando o dele\n", live.Port, live.Owner)
+			}
 			return nil
 		}
 		return fmt.Errorf("registering the daemon: %w", err)

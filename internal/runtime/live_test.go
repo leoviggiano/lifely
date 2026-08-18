@@ -298,3 +298,36 @@ func TestOnlyUnparseableMarkersAreHealed(t *testing.T) {
 		t.Error("a permission error was classified as corruption")
 	}
 }
+
+// Claim must never leave a zero-length marker visible: it creates the file
+// with O_EXCL and then writes, so a reader landing in that window would see an
+// empty file and call it corrupt -- and the healing path would delete a marker
+// belonging to a daemon that is coming up right now.
+func TestClaimNeverPublishesAnEmptyMarker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	want := Marker{PID: os.Getpid(), Port: 7777, Owner: OwnerTribunal, Version: "test"}
+	if err := Claim(want); err != nil {
+		t.Fatalf("Claim() = %v", err)
+	}
+
+	path, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("Claim left a zero-length marker on disk")
+	}
+	got, err := Read()
+	if err != nil {
+		t.Fatalf("the marker Claim wrote is not readable: %v", err)
+	}
+	if got != want {
+		t.Errorf("Read() = %+v, want %+v", got, want)
+	}
+}
