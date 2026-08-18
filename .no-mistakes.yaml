@@ -17,7 +17,12 @@ allow_repo_commands: false      # default, kept explicit: pushed branches can't 
 disable_project_settings: true  # gate agents must not inherit this repo's AGENTS.md identity
 
 commands:
-  test: "go test ./..."
+  # -trimpath e o que faz o cache de teste do portao existir: todo run e
+  # carvado num worktree NOVO, e sem a flag o binario de teste embute caminhos
+  # absolutos -- caminho novo = chave de cache nova = suite fria em todo run.
+  # VERIFICADO NESTE REPO em 18-08 (a flag quebra suite que acha fixture por
+  # runtime.Caller; a nossa usa t.TempDir()): `go test -trimpath ./...` verde.
+  test: "go test -trimpath ./..."
   lint: "go vet ./..."
   format: "gofmt -w ."
 
