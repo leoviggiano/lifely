@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.17 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.21 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -76,7 +76,13 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      de entrada escritos; trava de prompt >10 min reporta ao canal);
      ticket nasce inteiro (encomenda em specs/ + corpo do ticket.md, sem
      placeholder sobrevivente); decisão pendente do fundador mora em
-     decisoes.md padronizado (template ject-decisao-pendente). -->
+     decisoes.md padronizado (template ject-decisao-pendente).
+     v2.20 · 18-08-2026 — mensagem de canal declara o que pede (`ação
+     pedida:` ou `nada a fazer — relato`); caso-fonte lifely-020/021
+     (relato de criação lido como encomenda de criar → duplicatas).
+     v2.21 · 18-08-2026 — checklist de evidência antes de reportar
+     (pedido do fundador, após "verde citado 30× sem cobrir o
+     artefato"); coleção viva em tools/erros-comuns.md na bancada. -->
 
 ## ject — este repositório é rastreado
 
@@ -283,6 +289,20 @@ existe para eliminar.
   do `ticket.md` preenchido** (Objective/Description/DoD — placeholder do
   esqueleto não sobrevive à criação; substância só em specs/context deixa o
   ticket parecendo vazio no vault).
+- **[DIREÇÃO 18-08] Melhoria alegada exige medição** (life.md 2.5.26):
+  mudança justificada por performance/eficiência/custo/dinheiro entra com
+  (1) baseline medido antes, instrumento nomeado; (2) medição depois no
+  MESMO instrumento; (3) falsificador declarado — o número que, ausente,
+  REVERTE a mudança pelo registro. Melhoria sem número é hipótese: não
+  fecha pauta, não vira "ganho" em relatório. Tendência, nunca meta.
+- **Um ticket por conversa** (18-08, pedido do fundador): ao fechar um
+  ticket — `ject session finish` rodado e relatório ESCRITO — a conversa
+  se encerra ou se limpa (`/clear`); o próximo ticket nasce de
+  `ject start` fresco. A ordem é inegociável: relatório primeiro, limpeza
+  depois — limpar antes de escrever perde o que ainda não virou arquivo.
+  Contexto vem do vault, nunca de sobra de conversa (é a tese do 15.4);
+  a saga de UM ticket (rodadas de portão, fixes) permanece na mesma
+  conversa até ele fechar.
 - **Mensagem de canal é STATUS, nunca relatório** (18-08; feedback do
   fundador — o texto integral das mensagens renderiza na tela dele):
   corpo longo (relatório, diff, medição) vai a ARQUIVO (relatório de
@@ -291,7 +311,30 @@ existe para eliminar.
   `<emoji-tema> <tipo>(<sessão>): o que fez · o que resolve · detalhe: <caminho>`
   — temas: 🟢 fechado · 🔴 bloqueio/falha · 🟠 espera decisão · 🟣 achado ·
   🔵 status. O tribunal lê o arquivo na triagem; a tela do fundador vê só
-  o ponteiro.
+  o ponteiro. **E toda mensagem declara o que pede do destinatário**: fecha
+  com `ação pedida: <verbo>` ou `nada a fazer — relato` (v2.20; caso-fonte
+  lifely-020/021, 18-08: relato de criação já feita lido como encomenda de
+  criar — duplicatas no vault; relato no passado e encomenda no imperativo
+  têm formas parecidas, e quem recebe não deve precisar adivinhar).
+- **Checklist de evidência ANTES de qualquer reporte** (v2.21; pedido do
+  fundador, 18-08 — caso-fonte: sessão citou "build+test verdes" 30 vezes
+  para mudanças num arquivo que nenhum teste lê). Cinco perguntas, antes
+  de afirmar em relatório ou canal:
+  1. A evidência citada **cobre o artefato mudado**? Verde de suíte que
+     não lê o arquivo é ruído, não sinal.
+  2. **Mediu, ou está supondo?** "Afirmo alcance sem medir" é a classe
+     mais recorrente da casa.
+  3. Afirmação de **ausência** ("não está decidido", "não há registro")
+     passou pela mesma varredura que uma afirmação de presença exigiria?
+  4. **Erro de transporte foi lido como estado do servidor?** Timeout na
+     resposta ≠ comando não chegou — confira o estado antes de repetir.
+  5. **Ordem/estrutura que você supôs foi conferida no arquivo real?**
+     Asserção que checa existência mas não posição deixa o corte errado
+     passar.
+  Caso novo de erro comum → relatar ao tribunal pelo canal; a coleção
+  viva mora em `tools/erros-comuns.md` na bancada. O checklist é curto e
+  fixo DE PROPÓSITO — lista que cresce a cada caso vira ruído que se
+  ignora (a mesma lei do hook que apita em tudo).
 - **Decisão pendente do FUNDADOR ganha `decisoes.md` na raiz do ticket**
   (template `ject-decisao-pendente.md`; caso-fonte bot-048, 18-08): um
   bloco por decisão — o-que-se-decide · contexto com registro · opções com
