@@ -215,7 +215,13 @@ func removeIfUnchanged(seen Marker) error {
 // otherwise an unidentifiable marker would be permanently unstoppable. Behind
 // an explicit flag on purpose: signalling a process you cannot identify is a
 // last resort, not a fallback.
-func (m Marker) ForceStop() error {
+func (m Marker) ForceStop(asker Owner) error {
+	// Its own ownership guard, not just the caller's: Stop has one, and an
+	// API where the escape hatch is the unguarded twin invites exactly the
+	// mistake the hatch was fenced against in the command layer.
+	if !m.MayStop(asker) {
+		return ErrNotOwner
+	}
 	// NEVER signal a process we have identified as somebody else's.
 	//
 	// The escape hatch exists for the pid we could not identify, where a human

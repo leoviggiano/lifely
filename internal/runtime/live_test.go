@@ -333,7 +333,7 @@ func TestForceStopNeverSignalsAnIdentifiedStranger(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := m.ForceStop(); err != nil {
+	if err := m.ForceStop(OwnerManual); err != nil {
 		t.Fatalf("ForceStop() = %v", err)
 	}
 	// The marker is gone...
@@ -343,5 +343,24 @@ func TestForceStopNeverSignalsAnIdentifiedStranger(t *testing.T) {
 	// ...and the stranger is still alive.
 	if !(Marker{PID: pid}).probeAlive() {
 		t.Error("ForceStop killed a process it had identified as somebody else's")
+	}
+}
+
+// The escape hatch carries its own ownership guard, not just the command
+// layer's. An API where the hatch is the unguarded twin invites the exact
+// mistake the command layer was fenced against.
+func TestForceStopRefusesWhenTheAskerDoesNotOwnIt(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	m := Marker{PID: stranger(t), Port: 7777, Owner: OwnerManual}
+	if err := Write(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ForceStop(OwnerTribunal); err != ErrNotOwner {
+		t.Errorf("tribunal ForceStop over a manual daemon = %v, want ErrNotOwner", err)
+	}
+	if _, err := Read(); err != nil {
+		t.Errorf("the refused ForceStop cleared the marker anyway: %v", err)
 	}
 }
