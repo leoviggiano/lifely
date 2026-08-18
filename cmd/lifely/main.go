@@ -25,6 +25,12 @@ const defaultPort = 7777
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		// A refusal is not a malfunction: the command already explained
+		// itself, so it exits with its own code and prints nothing more.
+		// Exit 3 lets a script tell "stopped" from "refused, still running".
+		if errors.Is(err, errRefused) {
+			os.Exit(3)
+		}
 		fmt.Fprintln(os.Stderr, "lifely:", err)
 		os.Exit(1)
 	}
@@ -166,7 +172,14 @@ func status() error {
 
 func stop(args []string) error {
 	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
-	owner := fs.String("owner", string(runtime.OwnerManual), "who is asking: tribunal or manual")
+	// The DEFAULT is the constrained asker, not the omnipotent one.
+	//
+	// `manual` may stop anything; `tribunal` may only stop what it started.
+	// Defaulting to `manual` made the FR7.3 guard depend on every caller
+	// remembering the flag -- a session-close hook that forgot it would kill
+	// the founder's panel. Forgetting the flag has to fail safe.
+	owner := fs.String("owner", string(runtime.OwnerTribunal), "who is asking: tribunal (default, constrained) or manual (stops anything)")
+	force := fs.Bool("force", false, "stop even when the process at that pid cannot be identified")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -183,21 +196,32 @@ func stop(args []string) error {
 
 	// The tribunal closing its session must not take down a server the
 	// founder started by hand (spec FR7.3).
-	if err := live.Stop(asker); err != nil {
-		if err == runtime.ErrGone {
-			fmt.Println("lifely nao esta mais de pe")
+	switch err = live.Stop(asker); {
+	case err == nil:
+		fmt.Printf("lifely (pid %d, dono: %s) recebeu o pedido de parada\n", live.PID, live.Owner)
+		return nil
+	case errors.Is(err, runtime.ErrGone):
+		fmt.Println("lifely nao esta mais de pe")
+		return nil
+	case errors.Is(err, runtime.ErrNotOwner):
+		// The exit code carries the outcome: a script closing the tribunal
+		// must tell "stopped" from "refused, still running".
+		fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
+		return errRefused
+	case errors.Is(err, runtime.ErrUnidentified):
+		if *force {
+			if ferr := live.ForceStop(); ferr != nil {
+				return ferr
+			}
+			fmt.Printf("lifely (pid %d) parado por --force, sem confirmacao de identidade\n", live.PID)
 			return nil
 		}
-		if err == runtime.ErrUnidentified {
-			fmt.Printf("lifely nao mexeu no pid %d: %v\n", live.PID, err)
-			return nil
-		}
-		if err == runtime.ErrNotOwner {
-			fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
-			return nil
-		}
-		return err
+		fmt.Printf("lifely nao mexeu no pid %d: %v (use --force se tiver certeza)\n", live.PID, err)
+		return errRefused
 	}
-	fmt.Printf("lifely (pid %d, dono: %s) recebeu o pedido de parada\n", live.PID, live.Owner)
-	return nil
+	return err
 }
+
+// errRefused reports a stop deliberately not performed. It exits non-zero so a
+// script can tell refusal from success; the reason is already printed.
+var errRefused = errors.New("stop recusado")

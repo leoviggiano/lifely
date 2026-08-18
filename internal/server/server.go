@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/leoviggiano/lifely/internal/runtime"
@@ -83,7 +84,11 @@ func isLoopbackHost(host string) bool {
 // back to the one this process started with when there is no marker to read.
 func currentOwner(fallback string) string {
 	m, err := runtime.Read()
-	if err != nil {
+	// Trust the marker only when it describes THIS process: the rest of this
+	// package established that invariant (RemoveIfOwn, WriteIfUnchanged), and
+	// a marker written by another daemon would make us report its owner as
+	// ours.
+	if err != nil || m.PID != os.Getpid() {
 		return fallback
 	}
 	return string(m.Owner)

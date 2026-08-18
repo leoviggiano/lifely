@@ -160,6 +160,20 @@ func removeIfUnchanged(seen Marker) error {
 	return Remove()
 }
 
+// ForceStop signals the pid without confirming identity.
+//
+// It exists for the environment where the identity probe cannot run at all --
+// otherwise an unidentifiable marker would be permanently unstoppable. Behind
+// an explicit flag on purpose: signalling a process you cannot identify is a
+// last resort, not a fallback.
+func (m Marker) ForceStop() error {
+	proc, err := os.FindProcess(m.PID)
+	if err != nil {
+		return err
+	}
+	return proc.Signal(syscall.SIGTERM)
+}
+
 // Stop asks the daemon described by m to shut down, on behalf of asker.
 //
 // It refuses when the asker does not own the daemon (the tribunal closing its

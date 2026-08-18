@@ -61,8 +61,48 @@ func Write(m Marker) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	// Atomic: os.WriteFile truncates in place, and a second process now
+	// rewrites this file (the ownership transfer on reuse). A reader landing
+	// between truncate and write would see an empty file and conclude there is
+	// no daemon. Temp plus rename makes every read see one whole version.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".daemon-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
+
+// WriteIfUnchanged replaces the marker only when it still holds `seen`.
+//
+// The ownership transfer runs in a different process from the daemon it
+// rewrites: between reading the marker and writing the new owner, that daemon
+// may have exited and cleared it. A blind write would resurrect a marker for a
+// process that is gone.
+func WriteIfUnchanged(seen, next Marker) error {
+	current, err := Read()
+	if err != nil {
+		return err
+	}
+	if current != seen {
+		return ErrChanged
+	}
+	return Write(next)
+}
+
+// ErrChanged reports that the marker moved under a compare-and-set.
+var ErrChanged = errors.New("the daemon marker changed while we were reading it")
 
 // Read returns the registered daemon, or ErrNoMarker when there is none.
 func Read() (Marker, error) {
