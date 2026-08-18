@@ -63,7 +63,7 @@ func usage() {
 Uso:
   lifely serve [--port N] [--owner tribunal|manual]   sobe o painel
   lifely status                                       diz se ha painel de pe
-  lifely stop [--owner tribunal|manual]               derruba o painel
+  lifely stop --owner manual|tribunal [--force]       derruba o painel
 `)
 }
 
@@ -237,6 +237,12 @@ func stop(args []string) error {
 		return perr
 	}
 
+	// Ownership is decided BEFORE anything else, including --force.
+	//
+	// --force relaxes IDENTITY ("I could not tell what that pid is"), never
+	// OWNERSHIP. An escape that lets the tribunal stop the founder's panel is
+	// the FR7.3 bug wearing a flag -- and this package has now produced that
+	// bug twice from the same hatch.
 	// Peek, not Running(): Running() answers "is a daemon up?" and hides a
 	// stale marker behind a false. `stop` has to be able to SEE that marker --
 	// otherwise the foreign and gone branches below are unreachable and
@@ -255,6 +261,11 @@ func stop(args []string) error {
 
 	// The tribunal closing its session must not take down a server the
 	// founder started by hand (spec FR7.3).
+	if !live.MayStop(asker) {
+		fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, runtime.ErrNotOwner)
+		return errRefused
+	}
+
 	switch err = live.Stop(asker); {
 	case err == nil:
 		fmt.Printf("lifely (pid %d, dono: %s) recebeu o pedido de parada\n", live.PID, live.Owner)
@@ -267,15 +278,14 @@ func stop(args []string) error {
 			if ferr := live.ForceStop(); ferr != nil {
 				return ferr
 			}
-			fmt.Printf("marcador do pid %d limpo por --force; o processo nao era lifely\n", live.PID)
+			// Say what was attempted, not what was achieved: ForceStop clears
+			// the marker only if it has not changed under us, and claiming
+			// "limpo" when it may not be is the kind of confident wording this
+			// project has already been caught on.
+			fmt.Printf("pedido de limpeza do marcador do pid %d enviado (--force); o processo nao era lifely\n", live.PID)
 			return nil
 		}
 		fmt.Printf("o pid %d no marcador e de outro programa: %v (use --force para limpar)\n", live.PID, err)
-		return errRefused
-	case errors.Is(err, runtime.ErrNotOwner):
-		// The exit code carries the outcome: a script closing the tribunal
-		// must tell "stopped" from "refused, still running".
-		fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
 		return errRefused
 	case errors.Is(err, runtime.ErrUnidentified):
 		if *force {

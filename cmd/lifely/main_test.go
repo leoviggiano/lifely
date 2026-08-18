@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/leoviggiano/lifely/internal/runtime"
@@ -78,5 +79,39 @@ func TestStatusOnAnEmptyCacheSaysNothingIsUp(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	if err := status(); err != nil {
 		t.Errorf("status() with no daemon = %v, want nil", err)
+	}
+}
+
+// --force relaxes IDENTITY, never OWNERSHIP.
+//
+// The escape hatch exists for a pid we cannot identify. It must not become a
+// way for the tribunal to stop the founder's panel -- that is FR7.3, and an
+// escape that eats the guarantee it stands beside is the bug this package has
+// already produced twice.
+func TestForceDoesNotBypassOwnership(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	// A daemon the founder owns, whose pid now belongs to another program --
+	// the case that reaches the --force branch instead of stopping at the
+	// ownership check.
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot start a helper process here: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() })
+
+	if err := runtime.Write(runtime.Marker{
+		PID: cmd.Process.Pid, Port: 7777, Owner: runtime.OwnerManual,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := stop([]string{"--owner", "tribunal", "--force"})
+	if !errors.Is(err, errRefused) {
+		t.Fatalf("tribunal --force over a manual daemon = %v, want errRefused", err)
+	}
+	if got, rerr := runtime.Read(); rerr != nil || got.Owner != runtime.OwnerManual {
+		t.Errorf("the forced stop touched the marker: %+v (%v)", got, rerr)
 	}
 }
