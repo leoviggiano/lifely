@@ -38,10 +38,10 @@ func run(args []string) error {
 	switch args[0] {
 	case "serve":
 		return serve(args[1:])
-	case "status", "stop":
-		// Declared here so the shape of the CLI is visible from the first
-		// commit; the lifecycle itself is lifely-003.
-		return fmt.Errorf("%q is not implemented yet -- it lands with the daemon lifecycle (lifely-003)", args[0])
+	case "status":
+		return status()
+	case "stop":
+		return stop(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -56,8 +56,8 @@ func usage() {
 
 Uso:
   lifely serve [--port N] [--owner tribunal|manual]   sobe o painel
-  lifely status                                       (lifely-003)
-  lifely stop                                         (lifely-003)
+  lifely status                                       diz se ha painel de pe
+  lifely stop [--owner tribunal|manual]               derruba o painel
 `)
 }
 
@@ -69,9 +69,17 @@ func serve(args []string) error {
 		return err
 	}
 
-	who := runtime.Owner(*owner)
-	if who != runtime.OwnerTribunal && who != runtime.OwnerManual {
-		return fmt.Errorf("--owner must be %q or %q, got %q", runtime.OwnerTribunal, runtime.OwnerManual, *owner)
+	who, err := parseOwner(*owner)
+	if err != nil {
+		return err
+	}
+
+	// One instance, never two: a second daemon would answer with a second
+	// scan of the same sources and split the founder's attention between two
+	// URLs. Reuse what is already up and say where it is (spec FR7.4).
+	if live, ok := runtime.Running(); ok {
+		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
+		return nil
 	}
 
 	// Loopback only: the panel is never reachable from the network.
@@ -114,4 +122,53 @@ func serve(args []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return httpServer.Shutdown(shutdownCtx)
+}
+
+func parseOwner(owner string) (runtime.Owner, error) {
+	who := runtime.Owner(owner)
+	if who != runtime.OwnerTribunal && who != runtime.OwnerManual {
+		return "", fmt.Errorf("--owner must be %q or %q, got %q", runtime.OwnerTribunal, runtime.OwnerManual, owner)
+	}
+	return who, nil
+}
+
+func status() error {
+	live, ok := runtime.Running()
+	if !ok {
+		fmt.Println("lifely nao esta de pe")
+		return nil
+	}
+	fmt.Printf("lifely de pe em http://127.0.0.1:%d (pid %d, dono: %s, versao %s)\n",
+		live.Port, live.PID, live.Owner, live.Version)
+	return nil
+}
+
+func stop(args []string) error {
+	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
+	owner := fs.String("owner", string(runtime.OwnerManual), "who is asking: tribunal or manual")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	asker, err := parseOwner(*owner)
+	if err != nil {
+		return err
+	}
+
+	live, ok := runtime.Running()
+	if !ok {
+		fmt.Println("lifely nao esta de pe")
+		return nil
+	}
+
+	// The tribunal closing its session must not take down a server the
+	// founder started by hand (spec FR7.3).
+	if err := live.Stop(asker); err != nil {
+		if err == runtime.ErrNotOwner {
+			fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
+			return nil
+		}
+		return err
+	}
+	fmt.Printf("lifely (pid %d, dono: %s) recebeu o pedido de parada\n", live.PID, live.Owner)
+	return nil
 }
