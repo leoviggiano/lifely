@@ -337,31 +337,17 @@ func naturalKey(header, cells []string) string {
 	// A ledger without an explicit id cannot give all three of: stable across
 	// edits, unique, and independent of the other rows. The declared choice:
 	//
-	//   - stability and independence are KEPT. The key is computed from this
-	//     row alone, from the two cells least likely to change: the naming
-	//     column, and the first column (the closest thing to a subject a
-	//     ledger has).
-	//   - uniqueness is GIVEN UP in the one case where the source itself is
-	//     ambiguous: two rows with the same name and the same first column are
-	//     indistinguishable to a human reading the file too.
+	//   - uniqueness and row-locality are KEPT. The key is everything the row
+	//     says about itself, computed from this row alone -- no key depends on
+	//     which other rows happen to be in the file.
+	//   - stability is promised only against what changes by design: the
+	//     status, and any date-shaped cell.
 	//
-	// The rejected alternative was disambiguating only the rows that collide
-	// in the current sweep. It bought uniqueness by making a row's identity
-	// depend on its neighbours -- a new row appearing would silently change
-	// the id of one already there, orphaning its conversation.
-	// Everything the row says about ITSELF, minus what changes by design.
-	//
-	// Losing a row from the panel is the worse failure -- that is the standard
-	// this scanner already applies to terminal-by-exclusion -- so uniqueness
-	// wins over stability here. The status is excluded because it is meant to
-	// change; a date is excluded because it changes on every touch. What
-	// remains is the row's own description of itself, and it stays row-local:
-	// no key depends on which other rows happen to be in the file.
-	//
-	// Declared cost, same family as FR2.2: editing one of those cells mints a
-	// new id and orphans the conversation attached to it. A ledger that wants
-	// a stable identity gives its rows an `id` column, and then none of this
-	// applies.
+	// Cost, declared: editing another cell mints a new id and orphans the
+	// conversation attached to it. Uniqueness wins because a row that vanishes
+	// from the panel is a decision the founder never sees, while an orphaned
+	// conversation still leaves the item on screen. The way out is in the
+	// source: give the ledger an `id` column.
 	statusAt := columnIndex(header, "status")
 	parts := make([]string, 0, len(cells))
 	for i, c := range cells {
