@@ -40,6 +40,9 @@ func CLI(args ...string) ([]byte, error) {
 	return out, err
 }
 
+// sweepBudget bounds the whole ject sweep, however many tickets it finds.
+const sweepBudget = 8 * time.Second
+
 // cliTimeout bounds a single ject call. Generous for a healthy binary, short
 // enough that a hung one shows up as a marked source instead of a blank page.
 const cliTimeout = 10 * time.Second
@@ -78,6 +81,10 @@ var terminalStatus = map[string]bool{"done": true, "cancelled": true}
 // Ject sweeps the ject vaults through the binary, and returns the pendencies
 // plus the dependency graph that the queue's "blocked" state is computed from.
 func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[string][]string) {
+	// The whole sweep is bounded, not just each call: one ticket per
+	// subprocess times 88 open tickets is a page that never finishes loading
+	// even when every individual call is inside its own deadline.
+	deadline := time.Now().Add(sweepBudget)
 	var items []pendency.Pendency
 	var states []SourceState
 	graph := map[string][]string{}
@@ -105,7 +112,8 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	}
 
 	byProject := map[string]int{}
-	detailErr := ""
+	detailErrs := map[string]string{}
+	budgetErr := ""
 	var decisionItems []pendency.Pendency
 	decisionCount := 0
 
@@ -113,12 +121,22 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		if terminalStatus[t.Status] {
 			continue
 		}
+		if time.Now().After(deadline) {
+			// Say what was cut. A truncated sweep that stays quiet is the
+			// same failure as the --limit 20 this file already paid for.
+			budgetErr = fmt.Sprintf("varredura interrompida no orcamento de %s; %d tickets nao foram detalhados", sweepBudget, len(recent.Tickets)-len(items))
+			break
+		}
 		detail, derr := showTicket(run, t.ID)
 		if derr != nil {
-			if detailErr != "" {
-				detailErr += "; "
+			// And it changes the ANSWER, not just the log: a ticket whose
+			// detail we could not read has unknown dependencies, and the queue
+			// must not offer it as ready on the strength of a failed read.
+			key := "ject:" + t.Project
+			if detailErrs[key] != "" {
+				detailErrs[key] += "; "
 			}
-			detailErr += derr.Error()
+			detailErrs[key] += derr.Error()
 		}
 		graph[t.ID] = detail.Dependencies
 
@@ -129,7 +147,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 			Source:  "ject:" + t.Project,
 			Title:   t.ID + " — " + t.Title,
 			Detail:  ticketDetailLine(t, detail, open),
-			Blocks:  ticketBlocker(t, detail, open),
+			Blocks:  ticketBlocker(t, detail, open, derr != nil),
 			Origin:  pendency.Origin{Path: detail.Dir, Locator: t.ID, Open: "ject ticket show " + t.ID},
 			Surface: "ject start " + t.ID + " --attached",
 			SeenAt:  now,
@@ -151,9 +169,12 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		st := SourceState{Name: name, Count: byProject[name]}
-		if detailErr != "" {
-			st.Err = detailErr
+		st := SourceState{Name: name, Count: byProject[name], Err: detailErrs[name]}
+		if budgetErr != "" {
+			if st.Err != "" {
+				st.Err += "; "
+			}
+			st.Err += budgetErr
 		}
 		states = append(states, st)
 	}
@@ -184,8 +205,10 @@ func showTicket(run Runner, id string) (ticketDetail, error) {
 //
 // A dependency that is still open, or a recorded blocker, means the ticket is
 // waiting on something else -- that is a gate, not work an agent can pick up.
-func ticketBlocker(t recentTicket, d ticketDetail, open map[string]bool) pendency.Blocker {
-	if t.Blockers > 0 || len(unmet(d.Dependencies, open)) > 0 {
+func ticketBlocker(t recentTicket, d ticketDetail, open map[string]bool, unknown bool) pendency.Blocker {
+	// Unknown dependencies count as blocked: reading failed, so "no
+	// dependencies" is an absence of information, not a fact.
+	if unknown || t.Blockers > 0 || len(unmet(d.Dependencies, open)) > 0 {
 		return pendency.Gate
 	}
 	return pendency.AI

@@ -9,6 +9,7 @@ package scan
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"net/url"
 	"os"
@@ -568,17 +569,21 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	state := SourceState{Name: "git status", Path: root}
 
-	// `git -C` resolves UPWARD looking for a repository, so a root that is not
-	// one but sits inside one would report the PARENT's dirty tree as if it
-	// belonged to this source. Ask the filesystem first, and confine git with
-	// a ceiling so it cannot climb even if the check races.
+	// Both hardenings are needed and they are independent.
+	//
+	// Confinement: `git -C` resolves UPWARD, so a root that is not a
+	// repository but sits inside one would report the PARENT's dirty tree as
+	// this source's. The ceiling must name the PARENT -- git stops above the
+	// listed directories, so naming `root` would still let it reach `root`.
+	//
+	// Deadline: an earlier commit claimed "a deadline on every subprocess" and
+	// bounded only the ject binary; this sibling was left unbounded.
 	if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr != nil {
 		return nil, state
 	}
-	cmd := exec.Command("git", "-C", root, "status", "--porcelain")
-	// The ceiling must be the PARENT: git stops climbing above the listed
-	// directories, so naming `root` itself lets it reach `root` and keep
-	// going. Naming the parent is what actually confines the search to here.
+	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "status", "--porcelain")
 	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+filepath.Dir(root))
 	out, err := cmd.Output()
 	if err != nil {
