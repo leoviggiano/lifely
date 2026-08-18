@@ -40,15 +40,24 @@ var ErrNoMarker = errors.New("no lifely daemon is registered")
 
 // Path returns the marker's location, creating its directory if needed.
 func Path() (string, error) {
+	path, err := pathNoCreate()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// pathNoCreate is the single place the marker's location is spelled out, so a
+// reader and a writer can never disagree about where it lives.
+func pathNoCreate() (string, error) {
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	dir = filepath.Join(dir, "lifely")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "daemon.json"), nil
+	return filepath.Join(dir, "lifely", "daemon.json"), nil
 }
 
 // Write records a running daemon.
@@ -84,6 +93,59 @@ func Write(m Marker) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// Claim registers this process as THE daemon, failing if another one already
+// holds the marker.
+//
+// This is what makes "one instance, never two" (spec FR7.4) an invariant
+// instead of a convention: binding a port only excludes callers asking for the
+// SAME port, so two `serve --port` on different ports would both come up. An
+// exclusive create is decided by the filesystem, for every caller at once.
+func Claim(m Marker) error {
+	path, err := Path()
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return ErrAlreadyRunning
+		}
+		return err
+	}
+	data, mErr := json.Marshal(m)
+	if mErr != nil {
+		f.Close()
+		_ = os.Remove(path)
+		return mErr
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	return f.Close()
+}
+
+// ErrAlreadyRunning reports that another daemon holds the marker.
+var ErrAlreadyRunning = errors.New("another lifely daemon is already registered")
+
+// TakeOver moves a running daemon's ownership when the founder joins it by
+// hand, and reports whether anything changed.
+//
+// It lives here, and not inline in `serve`, because it IS the FR7.3 guarantee:
+// a copy of this logic in a test proves nothing about the command that runs it.
+func TakeOver(live Marker, asker Owner) (Marker, bool, error) {
+	if asker != OwnerManual || live.Owner != OwnerTribunal {
+		return live, false, nil
+	}
+	next := live
+	next.Owner = OwnerManual
+	if err := WriteIfUnchanged(live, next); err != nil {
+		return live, false, err
+	}
+	return next, true, nil
+}
+
 // WriteIfUnchanged replaces the marker only when it still holds `seen`.
 //
 // The ownership transfer runs in a different process from the daemon it
@@ -108,11 +170,11 @@ var ErrChanged = errors.New("the daemon marker changed while we were reading it"
 // path (every /healthz), a lookup must not have the side effect of making a
 // directory.
 func Peek() (Marker, error) {
-	dir, err := os.UserCacheDir()
+	path, err := pathNoCreate()
 	if err != nil {
 		return Marker{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "lifely", "daemon.json"))
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Marker{}, ErrNoMarker
 	}

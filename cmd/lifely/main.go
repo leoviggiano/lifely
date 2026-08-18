@@ -93,38 +93,28 @@ func serve(args []string) error {
 	// different ports both bind and both register, and the last write wins.
 	// One instance is a convention here, not an enforced invariant.
 	if live, ok := runtime.Running(); ok {
-		// Reuse transfers ownership when the founder joins by hand.
-		//
-		// Without this, a manual `serve` over a tribunal-owned daemon leaves
-		// the marker saying "tribunal", and closing the tribunal session then
-		// kills the panel the founder is actually using -- the exact bug
-		// FR7.3 exists to prevent, reached through the reuse path.
-		if who == runtime.OwnerManual && live.Owner == runtime.OwnerTribunal {
-			// Compare-and-set: the daemon we probed lives in another process
-			// and may have exited while we identified it. A blind write would
-			// resurrect a marker for a process that is gone.
-			transferred := live
-			transferred.Owner = runtime.OwnerManual
-			if err := runtime.WriteIfUnchanged(live, transferred); err != nil {
-				if errors.Is(err, runtime.ErrChanged) || errors.Is(err, runtime.ErrNoMarker) {
-					// Exit non-zero: nothing is serving on our behalf and the
-					// caller has to know. Returning 0 here would tell a script
-					// "the panel is up" when it is not.
-					return fmt.Errorf("o daemon mudou enquanto eu olhava; rode `lifely serve` de novo")
-				}
-				return fmt.Errorf("transferindo a posse do daemon: %w", err)
+		// The FR7.3 guarantee lives in runtime.TakeOver, not here: a copy of
+		// this decision inline would be a second implementation, and the test
+		// that pins it would be pinning the copy.
+		live, moved, err := runtime.TakeOver(live, who)
+		if err != nil {
+			if errors.Is(err, runtime.ErrChanged) || errors.Is(err, runtime.ErrNoMarker) {
+				// Exit non-zero: nothing is serving on our behalf, and telling
+				// a script "the panel is up" when it is not is the worse lie.
+				return fmt.Errorf("o daemon mudou enquanto eu olhava; rode `lifely serve` de novo")
 			}
-			live = transferred
-			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)\n", live.Port)
-			return nil
+			return fmt.Errorf("transferindo a posse do daemon: %w", err)
 		}
-		if fs.Lookup("port").Value.String() != fmt.Sprint(live.Port) && portWasSet(fs) {
-			// Say it out loud: silently serving a different port than the one
+		switch {
+		case moved:
+			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)\n", live.Port)
+		case portWasSet(fs) && *port != live.Port:
+			// Say it out loud: silently serving a port other than the one
 			// asked for is how somebody ends up curling an empty address.
 			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando; a porta %d que voce pediu foi ignorada\n", live.Port, live.Owner, *port)
-			return nil
+		default:
+			fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
 		}
-		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
 		return nil
 	}
 
@@ -135,12 +125,18 @@ func serve(args []string) error {
 	}
 	bound := listener.Addr().(*net.TCPAddr).Port
 
-	if err := runtime.Write(runtime.Marker{
+	if err := runtime.Claim(runtime.Marker{
 		PID:     os.Getpid(),
 		Port:    bound,
 		Owner:   who,
 		Version: server.Version,
 	}); err != nil {
+		if errors.Is(err, runtime.ErrAlreadyRunning) {
+			// Another daemon won the race between our Running() check and
+			// here. One instance, decided by the filesystem (spec FR7.4).
+			fmt.Println("outro lifely subiu primeiro; reusando o dele")
+			return nil
+		}
 		return fmt.Errorf("registering the daemon: %w", err)
 	}
 	// Only ever clear our own registration (see RemoveIfOwn).
@@ -217,6 +213,10 @@ func stop(args []string) error {
 	owner := fs.String("owner", "", "who is asking: manual (stops anything) or tribunal (only what it started); required when not run from a terminal")
 	force := fs.Bool("force", false, "stop even when the process at that pid cannot be identified")
 	if err := fs.Parse(args); err != nil {
+		// `-h` is a request, not a failure: flag already printed the usage.
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if *owner == "" {

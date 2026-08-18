@@ -182,16 +182,13 @@ func TestRunningHealsACorruptMarker(t *testing.T) {
 	}
 }
 
-// The FR7.3 bug, pinned as a test at last.
+// The FR7.3 bug, pinned against the function the command actually calls.
 //
-// The tribunal starts the panel; the founder then runs `lifely serve` by hand
-// and gets "reusando". If the marker keeps saying Owner=tribunal, closing the
-// tribunal session kills the panel he is using. Ownership has to move to him.
-//
-// This was proven by execution when it was fixed and never written down --
-// which is how the most important behaviour in this package ended up as the
-// only one without a guard.
-func TestReuseTransfersOwnershipToTheFounder(t *testing.T) {
+// The first version of this test re-implemented the transfer inline, so it
+// would have passed even if `serve` never transferred anything -- a test of a
+// copy proves nothing about the original. TakeOver exists so this test and
+// `serve` exercise the same code.
+func TestTakeOverMovesOwnershipToTheFounder(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
@@ -200,23 +197,58 @@ func TestReuseTransfersOwnershipToTheFounder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// What `serve --owner manual` does when it finds a live daemon.
-	transferred := tribunal
-	transferred.Owner = OwnerManual
-	if err := WriteIfUnchanged(tribunal, transferred); err != nil {
-		t.Fatalf("the transfer failed: %v", err)
-	}
-
-	got, err := Read()
-	if err != nil {
-		t.Fatal(err)
+	got, moved, err := TakeOver(tribunal, OwnerManual)
+	if err != nil || !moved {
+		t.Fatalf("TakeOver() = (%+v, %v, %v), want a move", got, moved, err)
 	}
 	if got.Owner != OwnerManual {
-		t.Fatalf("owner = %q after a manual reuse, want %q", got.Owner, OwnerManual)
+		t.Fatalf("owner = %q, want %q", got.Owner, OwnerManual)
 	}
-	// And now the tribunal closing its session must not take it down.
+	if onDisk, _ := Read(); onDisk.Owner != OwnerManual {
+		t.Errorf("the marker on disk still says %q", onDisk.Owner)
+	}
+	// And now closing the tribunal must not take down the founder's panel.
 	if err := got.Stop(OwnerTribunal); err != ErrNotOwner {
-		t.Errorf("the tribunal could still stop the founder's panel: %v", err)
+		t.Errorf("the tribunal could still stop it: %v", err)
+	}
+}
+
+// A tribunal serve over a tribunal daemon changes nothing, and a manual serve
+// over a manual daemon changes nothing either: only the founder joining a
+// tribunal daemon moves ownership.
+func TestTakeOverOnlyMovesInTheOneCase(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	for _, tc := range []struct{ owner, asker Owner }{
+		{OwnerTribunal, OwnerTribunal},
+		{OwnerManual, OwnerManual},
+		{OwnerManual, OwnerTribunal},
+	} {
+		m := Marker{PID: os.Getpid(), Port: 7777, Owner: tc.owner}
+		if err := Write(m); err != nil {
+			t.Fatal(err)
+		}
+		if _, moved, err := TakeOver(m, tc.asker); moved || err != nil {
+			t.Errorf("TakeOver(owner=%q, asker=%q) moved, want no change", tc.owner, tc.asker)
+		}
+	}
+}
+
+// One instance, decided by the filesystem rather than by convention: a second
+// Claim must lose even when it asks for a different port (spec FR7.4).
+func TestClaimRefusesASecondDaemon(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	if err := Claim(Marker{PID: os.Getpid(), Port: 7777, Owner: OwnerTribunal}); err != nil {
+		t.Fatalf("the first Claim failed: %v", err)
+	}
+	if err := Claim(Marker{PID: os.Getpid() + 1, Port: 8080, Owner: OwnerManual}); err != ErrAlreadyRunning {
+		t.Errorf("a second Claim on another port = %v, want ErrAlreadyRunning", err)
+	}
+	if got, _ := Read(); got.Port != 7777 {
+		t.Errorf("the second daemon overwrote the first: %+v", got)
 	}
 }
 
