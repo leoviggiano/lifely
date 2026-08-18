@@ -9,6 +9,7 @@ package scan
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -363,7 +364,12 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 
 func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	state := SourceState{Name: "git status", Path: root}
-	cmd := exec.Command("git", "-C", root, "status", "--porcelain")
+	// git gets a deadline too. The previous commit claimed "a deadline on
+	// every subprocess" and bounded only the ject binary -- the sibling in
+	// this very file was left unbounded.
+	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
 		state.Err = err.Error()

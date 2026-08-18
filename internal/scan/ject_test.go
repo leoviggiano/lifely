@@ -245,3 +245,47 @@ func TestJectSourceOrderIsStable(t *testing.T) {
 		}
 	}
 }
+
+// A ticket whose detail could not be read has UNKNOWN dependencies, and the
+// queue must not offer it as ready on the strength of a failed read.
+//
+// The earlier fix only reported the error; the answer stayed the same. Saying
+// "I could not read this" while still marking it ready is worse than silence,
+// because the queue looks considered.
+func TestUnreadableDetailIsBlockedNotReady(t *testing.T) {
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			return []byte(`{"tickets":[{"id":"x-1","project":"p","title":"t","status":"ready"}]}`), nil
+		}
+		return nil, os.ErrPermission
+	}
+	items, _, _ := Ject(run, time.Now())
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if items[0].Blocks != pendency.Gate {
+		t.Errorf("a ticket with unreadable detail blocks %q, want %q", items[0].Blocks, pendency.Gate)
+	}
+}
+
+// The detail error belongs to the project it came from, not to every project
+// in the sweep.
+func TestDetailErrorIsNotSmearedAcrossProjects(t *testing.T) {
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			return []byte(`{"tickets":[
+				{"id":"a-1","project":"alfa","title":"t","status":"ready"},
+				{"id":"b-1","project":"beta","title":"t","status":"ready"}]}`), nil
+		}
+		if args[2] == "a-1" {
+			return nil, os.ErrPermission
+		}
+		return []byte(`{"id":"b-1","dir":"","dependencies":[]}`), nil
+	}
+	_, states, _ := Ject(run, time.Now())
+	for _, s := range states {
+		if s.Name == "ject:beta" && s.Err != "" {
+			t.Errorf("beta was stamped with alfa's error: %q", s.Err)
+		}
+	}
+}
