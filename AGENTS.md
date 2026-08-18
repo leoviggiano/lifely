@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.21 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.22 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -82,7 +82,10 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      (relato de criação lido como encomenda de criar → duplicatas).
      v2.21 · 18-08-2026 — checklist de evidência antes de reportar
      (pedido do fundador, após "verde citado 30× sem cobrir o
-     artefato"); coleção viva em tools/erros-comuns.md na bancada. -->
+     artefato"); coleção viva em tools/erros-comuns.md na bancada.
+     v2.22 · 18-08-2026 — erros-comuns POR PROJETO no vault (pedido do
+     fundador: específico não infla o geral); funil projeto → casa →
+     checklist, subida por recorrência em 2+ projetos. -->
 
 ## ject — este repositório é rastreado
 
@@ -331,10 +334,17 @@ existe para eliminar.
   5. **Ordem/estrutura que você supôs foi conferida no arquivo real?**
      Asserção que checa existência mas não posição deixa o corte errado
      passar.
-  Caso novo de erro comum → relatar ao tribunal pelo canal; a coleção
-  viva mora em `tools/erros-comuns.md` na bancada. O checklist é curto e
-  fixo DE PROPÓSITO — lista que cresce a cada caso vira ruído que se
-  ignora (a mesma lei do hook que apita em tudo).
+  E os erros específicos DESTE projeto moram em `erros-comuns.md` na
+  raiz do projeto no vault (v2.22) — consulte-o junto do checklist antes
+  de reportar. O funil tem três níveis, cada um mais curto que o
+  anterior: **projeto** (`erros-comuns.md` do vault — erro específico
+  daqui; o agente registra ali mesmo, com caso-fonte e data) → **casa**
+  (`tools/erros-comuns.md` na bancada — classe que apareceu em 2+
+  projetos sobe pelo canal, nunca por cópia direta) → **checklist** (as 5
+  perguntas — promoção só por recorrência e sempre por TROCA). Na dúvida
+  sobre o nível: projeto primeiro; generalizar é decisão do tribunal. O
+  checklist é curto e fixo DE PROPÓSITO — lista que cresce a cada caso
+  vira ruído que se ignora (a mesma lei do hook que apita em tudo).
 - **Decisão pendente do FUNDADOR ganha `decisoes.md` na raiz do ticket**
   (template `ject-decisao-pendente.md`; caso-fonte bot-048, 18-08): um
   bloco por decisão — o-que-se-decide · contexto com registro · opções com
