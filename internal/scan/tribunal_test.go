@@ -118,6 +118,9 @@ func TestTsvWithoutStatusIsIgnored(t *testing.T) {
 // A source that exists and cannot be read is a finding, not silence -- and it
 // must not take the other sources down with it (spec FR1.3).
 func TestUnreadableSourceIsReportedNotFatal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not block reads")
+	}
 	root := house(t)
 	if err := os.Remove(filepath.Join(root, "FOUNDER.md")); err != nil {
 		t.Fatal(err)
@@ -273,6 +276,9 @@ func TestFaixaDoesNotLeakAcrossSections(t *testing.T) {
 // A broken ledger must say WHICH file broke, and must not erase the report of
 // another one that broke before it.
 func TestLedgerErrorNamesTheFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not block reads")
+	}
 	root := t.TempDir()
 	write(t, filepath.Join(root, "bom.tsv"), "# id\tstatus\nA\tpendente\n")
 	bad := filepath.Join(root, "ruim.tsv")

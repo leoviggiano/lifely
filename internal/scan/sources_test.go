@@ -13,6 +13,9 @@ import (
 // zero state is exactly where nobody goes hunting for a failure, so a silent
 // source there is worse than anywhere else (NFR6).
 func TestZeroPendenciesStillReportsUnreadableSources(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not block reads")
+	}
 	root := t.TempDir()
 	blocked := filepath.Join(root, "FOUNDER.md")
 	if err := os.WriteFile(blocked, []byte("## Faixa 1\n\n- [x] ~~feito~~\n"), 0o644); err != nil {

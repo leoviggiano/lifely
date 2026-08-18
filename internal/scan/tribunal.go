@@ -199,6 +199,10 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 			return nil
 		}
 		found, ferr := ledgerRows(root, path, now)
+		// Keep what was read before the failure: a ledger that breaks halfway
+		// still told us about the rows above the break, and dropping them
+		// hides open decisions because of an unrelated I/O error.
+		items = append(items, found...)
 		if ferr != nil {
 			// Name the file: a bare error message from a walk over many
 			// ledgers says nothing about which one broke, and the last one
@@ -208,9 +212,7 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 				state.Err += "; "
 			}
 			state.Err += rel + ": " + ferr.Error()
-			return nil
 		}
-		items = append(items, found...)
 		return nil
 	})
 	if err != nil {
@@ -288,7 +290,10 @@ func naturalKey(header, cells []string) string {
 			return v
 		}
 	}
-	return pendency.Slug(strings.Join(cells, " "))
+	// Fall back to what NAMES the row, never to the whole row: folding status,
+	// dates and notes into the identity means editing a note mints a new id
+	// and orphans the conversation attached to it (spec FR2.2).
+	return pendency.Slug(describe(header, cells))
 }
 
 func describe(header, cells []string) string {
@@ -338,6 +343,12 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 	path := filepath.Join(dir, latest, "summary.md")
 	state.Path = path
 	if _, err := os.Stat(path); err != nil {
+		// A round in progress has no summary yet. That is normal absence, not
+		// an unreadable source: reporting it as ILEGIVEL trains the reader to
+		// ignore the one marker that should always mean something.
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, state
+		}
 		state.Err = err.Error()
 		return nil, state
 	}
