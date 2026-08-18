@@ -172,3 +172,76 @@ func TestNoDecisionsFileIsSilent(t *testing.T) {
 		}
 	}
 }
+
+// The sweep must ask for ALL tickets, not the 20 most recent.
+//
+// `ject recent` defaults to --limit 20, so the panel silently showed a slice
+// of the source as if it were the whole: measured on 18-08, 88 tickets open
+// and 20 on screen. A source that truncates without saying so is worse than
+// one that fails.
+func TestJectAsksForEveryTicket(t *testing.T) {
+	var asked []string
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			asked = args
+			return []byte(`{"tickets":[]}`), nil
+		}
+		return []byte("{}"), nil
+	}
+	Ject(run, time.Now())
+
+	var unlimited bool
+	for i, a := range asked {
+		if a == "--limit" && i+1 < len(asked) && asked[i+1] == "0" {
+			unlimited = true
+		}
+	}
+	if !unlimited {
+		t.Errorf("recent was called as %v, without --limit 0", asked)
+	}
+}
+
+// A ticket whose detail cannot be read must not look like a ticket with no
+// dependencies -- that is the state deciding whether the queue offers it.
+func TestJectReportsUnreadableTicketDetail(t *testing.T) {
+	run := func(args ...string) ([]byte, error) {
+		switch args[0] {
+		case "recent":
+			return []byte(`{"tickets":[{"id":"x-1","project":"p","title":"t","status":"ready"}]}`), nil
+		default:
+			return nil, os.ErrPermission
+		}
+	}
+	_, states, _ := Ject(run, time.Now())
+
+	var reported bool
+	for _, s := range states {
+		if s.Err != "" {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Error("an unreadable ticket detail was swallowed")
+	}
+}
+
+// The source list must not reshuffle between sweeps: Go randomises map order,
+// and a panel that reorders itself reads as if something changed.
+func TestJectSourceOrderIsStable(t *testing.T) {
+	run := fakeJect(t, nil)
+	var first []string
+	for i := 0; i < 5; i++ {
+		_, states, _ := Ject(run, time.Now())
+		var names []string
+		for _, s := range states {
+			names = append(names, s.Name)
+		}
+		if i == 0 {
+			first = names
+			continue
+		}
+		if strings.Join(names, ",") != strings.Join(first, ",") {
+			t.Fatalf("source order changed between sweeps: %v then %v", first, names)
+		}
+	}
+}
