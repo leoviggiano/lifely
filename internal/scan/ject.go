@@ -3,9 +3,12 @@ package scan
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,7 +66,11 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	var states []SourceState
 	graph := map[string][]string{}
 
-	raw, err := run("recent", "--json")
+	// `--limit 0` means all. Without it ject defaults to 20, and the panel
+	// silently showed the 20 most recent tickets as if they were every open
+	// one: measured on 18-08, 88 tickets open and 20 on screen. A source that
+	// truncates without saying so is worse than a source that fails.
+	raw, err := run("recent", "--limit", "0", "--json")
 	if err != nil {
 		return nil, []SourceState{{Name: "ject", Err: describeExec(err)}}, graph
 	}
@@ -82,6 +89,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	}
 
 	byProject := map[string]int{}
+	detailErr := ""
 	var decisionItems []pendency.Pendency
 	decisionCount := 0
 
@@ -89,7 +97,13 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		if terminalStatus[t.Status] {
 			continue
 		}
-		detail := showTicket(run, t.ID)
+		detail, derr := showTicket(run, t.ID)
+		if derr != nil {
+			if detailErr != "" {
+				detailErr += "; "
+			}
+			detailErr += derr.Error()
+		}
 		graph[t.ID] = detail.Dependencies
 
 		items = append(items, pendency.Pendency{
@@ -113,8 +127,19 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	}
 
 	items = append(items, decisionItems...)
-	for name, count := range byProject {
-		states = append(states, SourceState{Name: name, Count: count})
+	// Deterministic order: Go randomises map iteration, and a panel whose
+	// source list reshuffles on every sweep reads as if something changed.
+	names := make([]string, 0, len(byProject))
+	for name := range byProject {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		st := SourceState{Name: name, Count: byProject[name]}
+		if detailErr != "" {
+			st.Err = detailErr
+		}
+		states = append(states, st)
 	}
 	if decisionCount > 0 {
 		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount})
@@ -122,14 +147,21 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	return items, states, graph
 }
 
-func showTicket(run Runner, id string) ticketDetail {
+// showTicket reads one ticket's detail, reporting what it could not read.
+//
+// Swallowing these errors made a ticket with an unreadable detail look like a
+// ticket with no dependencies -- which is exactly the state that decides
+// whether the queue offers it as ready.
+func showTicket(run Runner, id string) (ticketDetail, error) {
 	var d ticketDetail
 	raw, err := run("ticket", "show", id, "--json")
 	if err != nil {
-		return d
+		return d, fmt.Errorf("%s: %w", id, err)
 	}
-	_ = json.Unmarshal(raw, &d)
-	return d
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return d, fmt.Errorf("%s: %w", id, err)
+	}
+	return d, nil
 }
 
 // ticketBlocker decides whose move a ticket is.
@@ -157,7 +189,7 @@ func unmet(deps []string, open map[string]bool) []string {
 func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool) string {
 	parts := []string{t.Status, t.Priority}
 	if t.Progress.Total > 0 {
-		parts = append(parts, "checklist "+itoa(t.Progress.Done)+"/"+itoa(t.Progress.Total))
+		parts = append(parts, "checklist "+strconv.Itoa(t.Progress.Done)+"/"+strconv.Itoa(t.Progress.Total))
 	}
 	if t.ActiveSession {
 		parts = append(parts, "sessão ativa")
@@ -166,18 +198,6 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool) stri
 		parts = append(parts, "bloqueado: depende de "+strings.Join(blocked, ", "))
 	}
 	return strings.Join(parts, " · ")
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
 }
 
 func describeExec(err error) string {
