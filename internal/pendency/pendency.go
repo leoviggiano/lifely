@@ -56,8 +56,6 @@ type Pendency struct {
 	Origin  Origin
 	Surface string
 	SeenAt  time.Time
-	Unread  bool
-	ReadErr string
 }
 
 var slugCleaner = regexp.MustCompile(`[^a-z0-9]+`)

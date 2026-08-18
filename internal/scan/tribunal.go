@@ -301,7 +301,7 @@ func disambiguate(items []pendency.Pendency, header []string, rows [][]string) [
 		groups[it.ID] = append(groups[it.ID], i)
 	}
 	for _, idx := range groups {
-		if len(idx) < 2 || len(rows) < len(items) {
+		if len(idx) < 2 {
 			continue
 		}
 		col := distinguishingColumn(header, rows, idx)
@@ -571,12 +571,23 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	cmd := exec.Command("git", "-C", root, "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
-		// Keep git's own words: "exit status 128" alone says nothing about
-		// whether the root is not a repository, unreadable, or something else.
-		state.Err = err.Error()
+		// A root that is not a repository has no tree to be dirty: that is
+		// normal absence, the same call the summary makes, and reporting it as
+		// ILEGIVEL trains the reader to ignore the marker that should always
+		// mean something.
 		var ee *exec.ExitError
-		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			state.Err += ": " + strings.TrimSpace(string(ee.Stderr))
+		stderr := ""
+		if errors.As(err, &ee) {
+			stderr = strings.TrimSpace(string(ee.Stderr))
+		}
+		if strings.Contains(stderr, "not a git repository") {
+			return nil, state
+		}
+		// Keep git's own words: "exit status 128" alone says nothing about
+		// whether the root is unreadable, or something else entirely.
+		state.Err = err.Error()
+		if stderr != "" {
+			state.Err += ": " + stderr
 		}
 		return nil, state
 	}

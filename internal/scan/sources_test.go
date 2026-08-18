@@ -71,3 +71,19 @@ func TestUnwalkableDirectoryIsReported(t *testing.T) {
 		t.Error("a directory that could not be walked was dropped without a trace")
 	}
 }
+
+// A root that is not a git repository has no tree to be dirty. That is normal
+// absence -- the same call latestSummary makes for a missing summary -- and
+// calling it ILEGIVEL trains the reader to ignore the marker that should
+// always mean something.
+func TestNonRepositoryRootIsNotAFinding(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte("## Faixa 1\n\n- [ ] **algo**\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range Tribunal(root).Sources {
+		if s.Name == "git status" && s.Err != "" {
+			t.Errorf("a non-repository root was reported as unreadable: %q", s.Err)
+		}
+	}
+}
