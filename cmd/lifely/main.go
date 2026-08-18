@@ -77,6 +77,10 @@ func serve(args []string) error {
 	// One instance, never two: a second daemon would answer with a second
 	// scan of the same sources and split the founder's attention between two
 	// URLs. Reuse what is already up and say where it is (spec FR7.4).
+	//
+	// This check is the friendly path, not the lock: two `serve` calls can
+	// pass it at the same moment. The real mutual exclusion is binding the
+	// port below -- the loser fails to listen and never registers.
 	if live, ok := runtime.Running(); ok {
 		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
 		return nil
@@ -97,7 +101,8 @@ func serve(args []string) error {
 	}); err != nil {
 		return fmt.Errorf("registering the daemon: %w", err)
 	}
-	defer func() { _ = runtime.Remove() }()
+	// Only ever clear our own registration (see RemoveIfOwn).
+	defer func() { _ = runtime.RemoveIfOwn(os.Getpid()) }()
 
 	httpServer := &http.Server{Handler: server.New(bound, string(who))}
 	errs := make(chan error, 1)
@@ -111,12 +116,14 @@ func serve(args []string) error {
 
 	fmt.Printf("lifely servindo em http://127.0.0.1:%d (dono: %s)\n", bound, who)
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	// Named `signals`, not `stop`: `stop` is the command function, and
+	// shadowing it here makes the two impossible to tell apart at a glance.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	select {
 	case err := <-errs:
 		return err
-	case <-stop:
+	case <-signals:
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -163,6 +170,10 @@ func stop(args []string) error {
 	// The tribunal closing its session must not take down a server the
 	// founder started by hand (spec FR7.3).
 	if err := live.Stop(asker); err != nil {
+		if err == runtime.ErrGone {
+			fmt.Println("lifely nao esta mais de pe")
+			return nil
+		}
 		if err == runtime.ErrNotOwner {
 			fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
 			return nil

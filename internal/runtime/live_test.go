@@ -7,6 +7,7 @@ import (
 )
 
 func TestLive(t *testing.T) {
+	// Our own pid is, by construction, the same program we are.
 	if !(Marker{PID: os.Getpid()}).Live() {
 		t.Error("Live() on our own pid = false, want true")
 	}
@@ -50,6 +51,56 @@ func TestRunningClearsStaleMarker(t *testing.T) {
 	}
 	if _, err := Read(); err != ErrNoMarker {
 		t.Errorf("the stale marker survived Running(): Read() = %v, want ErrNoMarker", err)
+	}
+}
+
+// The OS recycles pids. A marker left by a crashed daemon can end up pointing
+// at somebody else's process, and answering "live" there would make Stop
+// SIGTERM a stranger -- the worst failure this package can produce.
+func TestLiveRejectsARecycledPID(t *testing.T) {
+	// pid 1 is alive and is definitely not us.
+	if (Marker{PID: 1}).Live() {
+		t.Error("Live() on pid 1 = true: a foreign process passed as our daemon")
+	}
+}
+
+// Stopping a daemon that is no longer there must say so, not signal whoever
+// inherited the number.
+func TestStopRefusesAForeignPID(t *testing.T) {
+	m := Marker{PID: 1, Owner: OwnerManual}
+	if err := m.Stop(OwnerManual); err != ErrGone {
+		t.Errorf("stopping a foreign pid = %v, want ErrGone", err)
+	}
+}
+
+// A daemon shutting down must not delete a marker somebody else wrote.
+func TestRemoveIfOwnLeavesAnotherProcessAlone(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	other := Marker{PID: os.Getpid() + 1, Port: 7777, Owner: OwnerManual}
+	if err := Write(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveIfOwn(os.Getpid()); err != nil {
+		t.Fatalf("RemoveIfOwn() = %v", err)
+	}
+	got, err := Read()
+	if err != nil {
+		t.Fatalf("the other process's marker was erased: %v", err)
+	}
+	if got.PID != other.PID {
+		t.Errorf("marker = %+v, want the one written by the other process", got)
+	}
+
+	if err := Write(Marker{PID: os.Getpid()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveIfOwn(os.Getpid()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(); err != ErrNoMarker {
+		t.Error("RemoveIfOwn did not clear our own marker")
 	}
 }
 

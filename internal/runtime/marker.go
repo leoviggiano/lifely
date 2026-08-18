@@ -84,6 +84,25 @@ func Read() (Marker, error) {
 	return m, nil
 }
 
+// RemoveIfOwn clears the marker only when it still describes this process.
+//
+// A daemon shutting down must not delete a marker somebody else wrote: with
+// two `serve` calls racing, the loser exiting would otherwise erase the
+// winner's registration and leave a live daemon invisible to `status`/`stop`.
+func RemoveIfOwn(pid int) error {
+	m, err := Read()
+	if errors.Is(err, ErrNoMarker) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if m.PID != pid {
+		return nil
+	}
+	return Remove()
+}
+
 // Remove clears the marker.
 func Remove() error {
 	path, err := Path()
