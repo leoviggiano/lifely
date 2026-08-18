@@ -296,20 +296,62 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 // that would otherwise collapse into one pendency get told apart -- because
 // losing a row from the panel is the worse failure.
 func disambiguate(items []pendency.Pendency, header []string, rows [][]string) []pendency.Pendency {
-	seen := map[string]int{}
-	for _, it := range items {
-		seen[it.ID]++
+	groups := map[string][]int{}
+	for i, it := range items {
+		groups[it.ID] = append(groups[it.ID], i)
 	}
-	for i := range items {
-		if seen[items[i].ID] < 2 || i >= len(rows) {
+	for _, idx := range groups {
+		if len(idx) < 2 || len(rows) < len(items) {
 			continue
 		}
-		if tie := tiebreaker(header, rows[i]); tie != "" {
+		col := distinguishingColumn(header, rows, idx)
+		if col < 0 {
+			// Nothing in the source tells these rows apart. A human reading
+			// the ledger could not either, so inventing a counter here would
+			// hide a duplicate in the source behind a number of ours.
+			continue
+		}
+		for _, i := range idx {
+			tie := pendency.Slug(strings.TrimSpace(rows[i][col]))
 			items[i].ID += "-" + tie
 			items[i].Origin.Locator += "-" + tie
 		}
 	}
 	return items
+}
+
+// distinguishingColumn finds the first column whose value actually DIFFERS
+// across the colliding rows.
+//
+// Picking "the first eligible cell" of one row was not enough: if that column
+// holds the same value on both, the id grows and the collision survives. The
+// question is about the group, so it has to be asked of the group.
+func distinguishingColumn(header []string, rows [][]string, idx []int) int {
+	statusAt := columnIndex(header, "status")
+	for col := range header {
+		if col == statusAt {
+			continue
+		}
+		seen := map[string]bool{}
+		ok := true
+		for _, i := range idx {
+			if col >= len(rows[i]) {
+				ok = false
+				break
+			}
+			v := strings.TrimSpace(rows[i][col])
+			// A date distinguishes today and moves the identity tomorrow.
+			if v == "" || looksLikeDate(v) || seen[v] {
+				ok = false
+				break
+			}
+			seen[v] = true
+		}
+		if ok {
+			return col
+		}
+	}
+	return -1
 }
 
 func columnIndex(header []string, name string) int {
@@ -363,32 +405,6 @@ func looksLikeDate(v string) bool {
 		}
 	}
 	return digits >= 6
-}
-
-// tiebreaker returns the first cell that distinguishes this row from another
-// with the same name -- skipping the status (which changes by design), the
-// naming column (which is already in the key) and empty cells.
-//
-// Declared trade-off: this IS content, so editing that column moves the id and
-// orphans the conversation. It only ever applies to rows that would otherwise
-// collide, and losing a row from the panel entirely is the worse failure. A
-// ledger that wants stable identity gives its rows an id.
-func tiebreaker(header, cells []string) string {
-	statusAt := columnIndex(header, "status")
-	name := namingCell(header, cells)
-	for i, c := range cells {
-		if i == statusAt {
-			continue
-		}
-		v := strings.TrimSpace(c)
-		// Skip dates: a timestamp distinguishes the rows today and moves the
-		// identity tomorrow, which is the failure this whole chain avoids.
-		if v == "" || v == name || looksLikeDate(v) {
-			continue
-		}
-		return pendency.Slug(v)
-	}
-	return ""
 }
 
 // namingCell returns the value of the column the header declares as the row's

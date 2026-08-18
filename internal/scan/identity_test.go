@@ -182,3 +182,21 @@ func TestLedgerWithBlankIdStillDisambiguates(t *testing.T) {
 		t.Errorf("two rows with blank ids share %q", got[0].ID)
 	}
 }
+
+// A tiebreaker that does not differ between the colliding rows breaks nothing
+// and hides the collision behind a longer id.
+func TestTiebreakerMustActuallyDistinguish(t *testing.T) {
+	root := t.TempDir()
+	// `projeto` is identical on both rows; only `responsavel` tells them apart.
+	write(t, filepath.Join(root, "fila.tsv"),
+		"# projeto\ttitulo\tresponsavel\tstatus\n"+
+			"lifely\trevisar\tana\tpendente\n"+
+			"lifely\trevisar\tbruno\tpendente\n")
+	got := find(Tribunal(root).Pendencies, "A2")
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("the tiebreaker did not distinguish: both rows are %q", got[0].ID)
+	}
+}
