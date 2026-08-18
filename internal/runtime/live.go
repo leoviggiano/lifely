@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -155,12 +156,19 @@ func Running() (Marker, bool) {
 		// daemon wrote in the window -- the very erasure this file spends two
 		// other functions preventing. A transient read error is not corruption.
 		if isCorrupt(err) {
-			_ = removeIfCorrupt()
+			// A failure to heal is worth knowing about -- it means every
+			// later serve will trip over the same file -- but it must not
+			// turn "no daemon" into an error for the caller.
+			if rmErr := removeIfCorrupt(); rmErr != nil {
+				fmt.Fprintf(os.Stderr, "lifely: nao consegui limpar o marcador corrompido: %v\n", rmErr)
+			}
 		}
 		return Marker{}, false
 	}
 	if !m.Live() {
-		_ = removeIfUnchanged(m)
+		if rmErr := removeIfUnchanged(m); rmErr != nil {
+			fmt.Fprintf(os.Stderr, "lifely: nao consegui limpar o marcador orfao: %v\n", rmErr)
+		}
 		return Marker{}, false
 	}
 	return m, true

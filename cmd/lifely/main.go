@@ -171,11 +171,18 @@ func announceReuse(live runtime.Marker, who runtime.Owner, fs *flag.FlagSet, wan
 		return fmt.Errorf("transferindo a posse do daemon: %w", err)
 	}
 
+	// Both facts can be true at once, and the port notice is the one that
+	// changes what the caller does next -- so it is appended, not replaced.
+	ignored := ""
+	if portWasSet(fs) && wanted != live.Port {
+		ignored = fmt.Sprintf("; a porta %d que voce pediu foi ignorada", wanted)
+	}
+
 	switch {
 	case moved:
-		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)\n", live.Port)
-	case portWasSet(fs) && wanted != live.Port:
-		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando; a porta %d que voce pediu foi ignorada\n", live.Port, live.Owner, wanted)
+		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)%s\n", live.Port, ignored)
+	case ignored != "":
+		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando%s\n", live.Port, live.Owner, ignored)
 	default:
 		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
 	}
@@ -261,11 +268,8 @@ func stop(args []string) error {
 
 	// The tribunal closing its session must not take down a server the
 	// founder started by hand (spec FR7.3).
-	if !live.MayStop(asker) {
-		fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, runtime.ErrNotOwner)
-		return errRefused
-	}
-
+	// Marker.Stop orders this correctly: liveness first, then ownership. A
+	// pre-check here would print "segue de pe" for a daemon it never probed.
 	switch err = live.Stop(asker); {
 	case err == nil:
 		fmt.Printf("lifely (pid %d, dono: %s) recebeu o pedido de parada\n", live.PID, live.Owner)
@@ -273,8 +277,13 @@ func stop(args []string) error {
 	case errors.Is(err, runtime.ErrGone):
 		fmt.Println("lifely nao esta mais de pe")
 		return nil
+	case errors.Is(err, runtime.ErrNotOwner):
+		// Reached only after the probe said the daemon is alive, so the
+		// message can say so honestly.
+		fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
+		return errRefused
 	case errors.Is(err, runtime.ErrForeign):
-		if *force {
+		if *force && live.MayStop(asker) {
 			if ferr := live.ForceStop(); ferr != nil {
 				return ferr
 			}
@@ -288,7 +297,7 @@ func stop(args []string) error {
 		fmt.Printf("o pid %d no marcador e de outro programa: %v (use --force para limpar)\n", live.PID, err)
 		return errRefused
 	case errors.Is(err, runtime.ErrUnidentified):
-		if *force {
+		if *force && live.MayStop(asker) {
 			if ferr := live.ForceStop(); ferr != nil {
 				return ferr
 			}
