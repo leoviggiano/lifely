@@ -215,15 +215,7 @@ func status() error {
 
 func stop(args []string) error {
 	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
-	// Who is asking cannot be guessed, and the two failure modes pull in
-	// opposite directions: defaulting to `manual` lets a session-close hook
-	// that forgot the flag kill the founder's panel; defaulting to `tribunal`
-	// makes the plain interactive pair `serve` then `stop` always refuse.
-	//
-	// So it is not defaulted at all when nobody is watching: at a terminal the
-	// asker is the person typing (`manual`); from a script the flag is
-	// REQUIRED, and forgetting it refuses instead of guessing.
-	owner := fs.String("owner", "", "who is asking: manual (stops anything) or tribunal (only what it started); required when not run from a terminal")
+	owner := fs.String("owner", "", "who is asking: manual (stops anything) or tribunal (only what it started) -- required")
 	force := fs.Bool("force", false, "stop even when the process at that pid cannot be identified")
 	if err := fs.Parse(args); err != nil {
 		// `-h` is a request, not a failure: flag already printed the usage.
@@ -232,11 +224,13 @@ func stop(args []string) error {
 		}
 		return err
 	}
+	// No guessing, ever. A TTY on stdin does not prove a person is typing --
+	// cron, CI and a tribunal hook can all have one -- and the comment right
+	// above this used to say "who is asking cannot be guessed" while the code
+	// guessed. One flag costs the founder four words; a wrong guess costs him
+	// the panel he was reading.
 	if *owner == "" {
-		if !interactive() {
-			return errors.New("rode com --owner manual ou --owner tribunal: fora de um terminal eu nao adivinho quem pede")
-		}
-		*owner = string(runtime.OwnerManual)
+		return errors.New("diga quem pede: --owner manual (voce) ou --owner tribunal (o fecho da sessao)")
 	}
 	asker, perr := parseOwner(*owner)
 	if perr != nil {
@@ -248,9 +242,15 @@ func stop(args []string) error {
 	// otherwise the foreign and gone branches below are unreachable and
 	// `--force` has nothing to act on.
 	live, err := runtime.Peek()
-	if err != nil {
+	switch {
+	case errors.Is(err, runtime.ErrNoMarker):
 		fmt.Println("lifely nao esta de pe")
 		return nil
+	case err != nil:
+		// A marker we could not read is not the same as no marker: saying
+		// "nao esta de pe" with exit 0 would tell a script the panel is down
+		// when the truth is that we do not know.
+		return fmt.Errorf("nao consegui ler o marcador do daemon: %w", err)
 	}
 
 	// The tribunal closing its session must not take down a server the
@@ -289,15 +289,6 @@ func stop(args []string) error {
 		return errRefused
 	}
 	return err
-}
-
-// interactive reports whether a person is typing at a terminal.
-func interactive() bool {
-	info, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // errRefused reports a stop deliberately not performed. It exits non-zero so a

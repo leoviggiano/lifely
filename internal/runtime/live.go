@@ -236,9 +236,9 @@ func (m Marker) ForceStop() error {
 // session must not take down a server the founder started by hand), when the
 // pid is gone, and when we cannot confirm the process is a lifely.
 func (m Marker) Stop(asker Owner) error {
-	if !m.MayStop(asker) {
-		return ErrNotOwner
-	}
+	// Liveness first, ownership second: refusing on ownership when the daemon
+	// is already gone tells the caller to try a different flag for a process
+	// that does not exist.
 	switch m.probe() {
 	case identityGone:
 		return ErrGone
@@ -250,6 +250,9 @@ func (m Marker) Stop(asker Owner) error {
 		return ErrForeign
 	case identityUnknown:
 		return ErrUnidentified
+	}
+	if !m.MayStop(asker) {
+		return ErrNotOwner
 	}
 	proc, err := os.FindProcess(m.PID)
 	if err != nil {

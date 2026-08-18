@@ -66,81 +66,66 @@ func Write(m Marker) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.Marshal(m)
+	tmp, err := stage(m, path)
 	if err != nil {
 		return err
 	}
-	// Atomic: os.WriteFile truncates in place, and a second process now
-	// rewrites this file (the ownership transfer on reuse). A reader landing
-	// between truncate and write would see an empty file and conclude there is
-	// no daemon. Temp plus rename makes every read see one whole version.
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".daemon-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	defer os.Remove(tmp)
+	// Rename overwrites: this is the update path, and the caller has already
+	// decided it may replace what is there.
+	return os.Rename(tmp, path)
 }
 
-// Claim registers this process as THE daemon, failing if another one already
-// holds the marker.
-//
-// This is what makes "one instance, never two" (spec FR7.4) an invariant
-// instead of a convention: binding a port only excludes callers asking for the
-// SAME port, so two `serve --port` on different ports would both come up. An
-// exclusive create is decided by the filesystem, for every caller at once.
 func Claim(m Marker) error {
 	path, err := Path()
 	if err != nil {
 		return err
 	}
-	data, err := json.Marshal(m)
+	tmp, err := stage(m, path)
 	if err != nil {
 		return err
 	}
-
-	// Write a complete file somewhere else, then LINK it into place.
-	//
-	// O_CREATE|O_EXCL alone gives exclusivity but not atomicity: the file
-	// exists, empty, between the create and the write, and a reader landing
-	// there sees a zero-length marker, calls it corrupt, and the healing path
-	// deletes the registration of a daemon that is coming up right now.
-	// os.Link fails with EEXIST if the name is taken, so this is both -- one
-	// winner, and never a half-written marker on disk.
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".claim-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Link(tmp.Name(), path); err != nil {
+	defer os.Remove(tmp)
+	// Link, not rename: link fails with EEXIST when the name is taken, so one
+	// caller wins and no half-written marker is ever visible. O_EXCL alone
+	// would give exclusivity without atomicity -- the file exists, empty,
+	// between the create and the write.
+	if err := os.Link(tmp, path); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return ErrAlreadyRunning
 		}
 		return err
 	}
 	return nil
+}
+
+// stage writes a complete marker to a temporary file beside its final home and
+// returns that path. Write and Claim both publish from here; they differ only
+// in how the name is put in place.
+func stage(m Marker, path string) (string, error) {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".marker-*.json")
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 // ErrAlreadyRunning reports that another daemon holds the marker.
