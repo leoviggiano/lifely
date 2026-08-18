@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.18 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.19 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -283,6 +283,12 @@ existe para eliminar.
   do `ticket.md` preenchido** (Objective/Description/DoD — placeholder do
   esqueleto não sobrevive à criação; substância só em specs/context deixa o
   ticket parecendo vazio no vault).
+- **[DIREÇÃO 18-08] Melhoria alegada exige medição** (life.md 2.5.26):
+  mudança justificada por performance/eficiência/custo/dinheiro entra com
+  (1) baseline medido antes, instrumento nomeado; (2) medição depois no
+  MESMO instrumento; (3) falsificador declarado — o número que, ausente,
+  REVERTE a mudança pelo registro. Melhoria sem número é hipótese: não
+  fecha pauta, não vira "ganho" em relatório. Tendência, nunca meta.
 - **Um ticket por conversa** (18-08, pedido do fundador): ao fechar um
   ticket — `ject session finish` rodado e relatório ESCRITO — a conversa
   se encerra ou se limpa (`/clear`); o próximo ticket nasce de
