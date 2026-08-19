@@ -460,6 +460,52 @@ func TestFencedCodeBlockDoesNotCloseTheLane(t *testing.T) {
 	}
 }
 
+// A fenced snippet nested under a board item is part of that item's Detail.
+// Inside a fence the line is CONTENT: the guard exists to stop it becoming
+// structure, never to swallow it -- A1 dropped these lines while A7 declared
+// the opposite rule for the same guard, two copies each sure of itself.
+// (defect D2)
+func TestFencedSnippetStaysInTheItemDetail(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Com snippet**\n  contexto\n```sh\nject start lifely-028\n```\n  depois\n")
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 1 {
+		t.Fatalf("got %d items, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Detail, "ject start lifely-028") {
+		t.Errorf("the fenced command was dropped from the Detail: %q", got[0].Detail)
+	}
+	if !strings.Contains(got[0].Detail, "depois") {
+		t.Errorf("the prose after the fence was dropped from the Detail: %q", got[0].Detail)
+	}
+}
+
+// Every CommonMark list marker is swept, and the marker never leaks into the
+// identity: the same title keeps the same id whichever marker wrote it. Items
+// written with '*' or '+' used to vanish with no count, no Err and no Note --
+// an invisible item on the founder's own board. (defect D5)
+func TestEveryListMarkerIsSweptWithTheSameIdentity(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Um**\n* [ ] **Dois**\n+ [ ] **Tres**\n")
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 3 {
+		t.Fatalf("swept %d items, want 3 -- a marker variant vanished from the board", len(got))
+	}
+
+	write(t, filepath.Join(root, "FOUNDER.md"), "## Faixa 1\n\n- [ ] **Mesma tarefa**\n")
+	dash := find(Tribunal(root).Pendencies, "A1")
+	write(t, filepath.Join(root, "FOUNDER.md"), "## Faixa 1\n\n* [ ] **Mesma tarefa**\n")
+	star := find(Tribunal(root).Pendencies, "A1")
+	if len(dash) != 1 || len(star) != 1 {
+		t.Fatalf("got %d then %d items, want 1 each", len(dash), len(star))
+	}
+	if dash[0].ID != star[0].ID {
+		t.Errorf("rewriting the marker moved the identity: %q became %q", dash[0].ID, star[0].ID)
+	}
+}
+
 // An unbalanced code fence must be a FINDING, never silence. The fence guard
 // skips everything between fences, so a fence that never closes swallowed the
 // rest of the founder's board with nothing on screen to say so.
