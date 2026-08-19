@@ -162,18 +162,6 @@ func faixaBlocker(faixa string) pendency.Blocker {
 	return pendency.AI
 }
 
-// boardKey returns the part of a board line that names the item.
-//
-// Same rule the ledger identity follows, stated once for both: key on what the
-// SOURCE says names the item, and accept a collision where the source itself
-// is ambiguous. The board's convention is `**Título** — nota`, so the bold
-// title is the name and the note is commentary that ages; a ledger has no such
-// convention, so everything the row says about itself is the name.
-//
-// Cost, declared: two board items with the same bold title in the same faixa
-// become one pendency. That is the source calling two things by one name --
-// visible to a human reading the board too -- and inventing a distinction here
-// would hide it.
 // boardID builds the A1 identity, falling back to position when the title
 // slugs to nothing: a line made only of punctuation or emoji would otherwise
 // key on the empty string and collapse with every other such line.
@@ -184,6 +172,17 @@ func boardID(faixa, title string, ordinal int) string {
 	return "f" + faixa + "-" + pendency.LocationKey("board-line", strconv.Itoa(ordinal))
 }
 
+// boardKey returns the part of a board line that names the item.
+//
+// Same rule the ledger identity follows, stated once for both: key on what the
+// SOURCE says names the item, and accept a collision where the source itself
+// is ambiguous. The board's convention is `**Título** — nota`, so the bold
+// title is the name and the note is commentary that ages.
+//
+// Cost, declared: two board items with the same bold title in the same faixa
+// become one pendency. That is the source calling two things by one name --
+// visible to a human reading the board too -- and inventing a distinction here
+// would hide it.
 func boardKey(line string) string {
 	// Only the bold that OPENS the item counts. Taking any bold run in the
 	// line would key `- [ ] fazer X — **urgente** hoje` on "urgente", and two
@@ -573,6 +572,13 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	// belonged to this source. Ask the filesystem first, and confine git with
 	// a ceiling so it cannot climb even if the check races.
 	if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr != nil {
+		// Only ABSENCE is normal here. A permission error on .git means we
+		// could not look, and answering "not a repository" would hide it --
+		// the same confusion between absence and failure this scanner keeps
+		// paying for.
+		if !os.IsNotExist(statErr) {
+			state.Err = statErr.Error()
+		}
 		return nil, state
 	}
 	cmd := exec.Command("git", "-C", root, "status", "--porcelain")

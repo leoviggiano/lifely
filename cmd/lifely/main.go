@@ -170,7 +170,7 @@ func stop(args []string) error {
 	// The tribunal closing its session must not take down a server the
 	// founder started by hand (spec FR7.3).
 	if err := live.Stop(asker); err != nil {
-		if err == runtime.ErrNotOwner {
+		if errors.Is(err, runtime.ErrNotOwner) {
 			fmt.Printf("lifely is still running at http://127.0.0.1:%d: %v\n", live.Port, err)
 			return nil
 		}
