@@ -258,22 +258,65 @@ func TestInvalidateDuringASweepDoesNotCacheTheStaleResult(t *testing.T) {
 	}
 }
 
-// A panicking sweep must not hand its waiters a nil snapshot. Releasing the
-// flight fixed the wedge and moved the failure: B and C returned flight.snap
-// verbatim and dereferenced nil.
+// A panicking sweep must not hand its waiters a nil snapshot.
+//
+// The first version of this test asserted NOTHING: it called p.sweep() behind
+// a recover, so `snap` stayed nil and the only assertion sat behind
+// `if snap != nil`. Fourth vacuous test of this branch's history -- and this
+// one was written specifically to pin the fix it failed to exercise.
+//
+// What a waiter actually reads is flight.snap, so that is what this reads.
 func TestPanickingSweepGivesWaitersAnHonestEmptyBoard(t *testing.T) {
 	p := fixture(t)
-	p.Run = func(args ...string) ([]byte, error) { panic("the vault exploded") }
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	p.Run = func(args ...string) ([]byte, error) {
+		close(entered)
+		<-release
+		panic("the vault exploded")
+	}
 
-	var snap *snapshot
-	func() {
+	go func() {
 		defer func() { _ = recover() }()
-		snap = p.sweep()
+		p.sweep()
 	}()
+	<-entered
 
-	// The sweeper itself may panic out; what must not happen is a nil
-	// snapshot reaching anyone. Ask the flight the waiters would have read.
-	if snap != nil && snap.Result.Sources == nil {
-		t.Error("a failed sweep produced a board with no sources: the failure is invisible")
+	flight := p.inflightForTest()
+	if flight == nil {
+		t.Fatal("no sweep in flight while the runner is blocked inside it")
+	}
+	close(release)
+	<-flight.done // the deferred release closes this even on the panic path
+
+	if flight.snap == nil {
+		t.Fatal("a waiter would have received a nil snapshot from a panicking sweep")
+	}
+	if len(flight.snap.Result.Sources) == 0 {
+		t.Error("the failed sweep produced a board with no sources: the failure is invisible")
+	}
+}
+
+// The happy path of GET /api/pendencies/{id...}. Only the 404 was covered, and
+// a lookup miss and a broken path-param binding produce the identical 404 --
+// so a regression in the binding would have looked exactly like "not found".
+func TestDetailEndpointReturnsTheKnownPendency(t *testing.T) {
+	h := New(7777, "manual", fixture(t))
+	_, list := get(t, h, "/api/pendencies")
+	items := list["pendencies"].([]any)
+	if len(items) == 0 {
+		t.Fatal("the fixture produced no pendencies")
+	}
+	want := items[0].(map[string]any)
+
+	rec, body := get(t, h, "/api/pendencies/"+want["id"].(string))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body["id"] != want["id"] {
+		t.Errorf("id = %v, want %v", body["id"], want["id"])
+	}
+	if body["title"] != want["title"] {
+		t.Errorf("title = %v, want %v", body["title"], want["title"])
 	}
 }

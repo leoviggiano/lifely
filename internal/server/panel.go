@@ -125,8 +125,15 @@ type sweepFlight struct {
 	snap *snapshot
 }
 
-// Invalidate drops the cached sweep. Anything that changes a source calls it,
-// so the next read is honest rather than three seconds stale.
+// Invalidate drops the cached sweep so the next read is honest rather than a
+// TTL stale.
+//
+// NO PRODUCTION CALLER YET, and that is a dated fact, not an oversight: the
+// API is read-only until FR14 (the decision card) opens the one write path
+// into a source, and that is the ticket that will call this. Kept rather than
+// deleted because the race it closes is real and was found by review, not
+// invented -- but if FR14 lands without calling Invalidate, this is dead code
+// and goes.
 func (p *Panel) Invalidate() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
