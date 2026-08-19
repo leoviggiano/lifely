@@ -1,0 +1,312 @@
+package server
+
+import (
+	"errors"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/go-fuego/fuego"
+
+	"github.com/leoviggiano/lifely/internal/pendency"
+	"github.com/leoviggiano/lifely/internal/scan"
+)
+
+// Panel answers questions about what is pending.
+//
+// Every answer is recomputed from the sources: nothing about a pendency is
+// stored, and a count is never inherited from a previous sweep (spec NFR2).
+// The only concession is a short in-memory cache so that a page made of
+// several requests does not sweep the disk several times -- it never survives
+// a restart, and its lifetime is measured in seconds.
+type Panel struct {
+	Root string
+	Run  scan.Runner
+	TTL  time.Duration
+
+	mu       sync.Mutex
+	inflight *sweepFlight
+	cached   *snapshot
+	cachedAt time.Time
+	// generation counts source changes. A sweep that starts in one generation
+	// and finishes in another read a world that no longer exists.
+	generation uint64
+	now        func() time.Time
+}
+
+type snapshot struct {
+	Result scan.Result
+	Graph  map[string][]string
+}
+
+// NewPanel builds a panel over a record repository and a ject runner.
+func NewPanel(root string, run scan.Runner) *Panel {
+	return &Panel{Root: root, Run: run, TTL: 3 * time.Second, now: time.Now}
+}
+
+// sweep returns a fresh view, or the one from a moment ago.
+func (p *Panel) sweep() *snapshot {
+	// One sweep at a time, and nobody waits behind the lock.
+	//
+	// Holding p.mu across scan.All made every request queue behind a
+	// multi-second walk. Releasing it entirely traded that for a stampede:
+	// N concurrent requests each shelling out per ticket. So: the first caller
+	// sweeps, the others wait on the SAME sweep and share its result.
+	p.mu.Lock()
+	if p.cached != nil && p.now().Sub(p.cachedAt) < p.TTL {
+		defer p.mu.Unlock()
+		return p.cached
+	}
+	if p.inflight != nil {
+		wait := p.inflight
+		p.mu.Unlock()
+		<-wait.done
+		return wait.snap
+	}
+	flight := &sweepFlight{done: make(chan struct{})}
+	p.inflight = flight
+	// The generation this sweep started in. scan.All can run for seconds, and
+	// an Invalidate during that window means a source CHANGED after we began
+	// reading -- so this result is already stale before it exists and must not
+	// become the cache. The callers waiting on this flight still get it (it is
+	// the freshest thing that exists), but the next request sweeps again.
+	startedAt := p.generation
+	p.mu.Unlock()
+
+	// Deferred, because a panic inside scan.All used to WEDGE the panel: the
+	// flight stayed published and its done channel never closed, so every
+	// later request blocked forever on a sweep that had already died. net/http
+	// recovers the panic for the request that caused it -- and leaves the
+	// process serving nothing but hung readers. Releasing the flight has to
+	// happen on the way out, whichever way out it is.
+	done := false
+	defer func() {
+		if !done && flight.snap == nil {
+			// The waiters on this flight return flight.snap verbatim, so a
+			// panic used to hand them a nil pointer -- fixing the wedge had
+			// simply moved the failure. A failed sweep is a SOURCE that could
+			// not be read, which this panel already knows how to show: an
+			// empty board carrying the finding, never a nil and never a
+			// silent zero.
+			flight.snap = &snapshot{Result: scan.Result{
+				At:      p.now(),
+				Sources: []scan.SourceState{{Name: "sweep", Err: "the sweep failed before it finished; the board below is empty because nothing was read"}},
+			}}
+		}
+		p.mu.Lock()
+		if !done && p.generation == startedAt {
+			// Only a completed sweep may become the cache. A panicking one
+			// leaves flight.snap nil, and publishing that would replace the
+			// panel's contents with an empty board.
+			p.cached = nil
+		}
+		p.inflight = nil
+		p.mu.Unlock()
+		close(flight.done)
+	}()
+
+	res, graph := scan.All(p.Root, p.Run)
+	flight.snap = &snapshot{Result: res, Graph: graph}
+
+	p.mu.Lock()
+	if p.generation == startedAt {
+		p.cached, p.cachedAt = flight.snap, p.now()
+	}
+	p.mu.Unlock()
+	done = true
+	return flight.snap
+}
+
+// sweepFlight is one sweep in progress, shared by everyone who asked for it
+// while it was running.
+type sweepFlight struct {
+	done chan struct{}
+	snap *snapshot
+}
+
+// Invalidate drops the cached sweep so the next read is honest rather than a
+// TTL stale.
+//
+// NO PRODUCTION CALLER YET, and that is a dated fact, not an oversight: the
+// API is read-only until FR14 (the decision card) opens the one write path
+// into a source, and that is the ticket that will call this. Kept rather than
+// deleted because the race it closes is real and was found by review, not
+// invented -- but if FR14 lands without calling Invalidate, this is dead code
+// and goes.
+func (p *Panel) Invalidate() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cached = nil
+	// Bumping the generation is what reaches a sweep already in flight:
+	// clearing p.cached alone left the older, pre-change snapshot free to
+	// overwrite it when that sweep returned, serving stale data for a full TTL
+	// after the very change that called Invalidate.
+	p.generation++
+}
+
+type pendencyJSON struct {
+	ID      string `json:"id"`
+	UUID    string `json:"uuid"`
+	Class   string `json:"class"`
+	Source  string `json:"source"`
+	Title   string `json:"title"`
+	Detail  string `json:"detail,omitempty"`
+	Blocks  string `json:"blocks"`
+	Surface string `json:"surface,omitempty"`
+	Origin  struct {
+		Path    string `json:"path"`
+		Locator string `json:"locator,omitempty"`
+		Open    string `json:"open,omitempty"`
+	} `json:"origin"`
+	SeenAt time.Time `json:"seen_at"`
+}
+
+func toJSON(p pendency.Pendency) pendencyJSON {
+	var out pendencyJSON
+	out.ID, out.UUID = p.ID, pendency.UUID(p.ID)
+	out.Class, out.Source, out.Title, out.Detail = p.Class, p.Source, p.Title, p.Detail
+	out.Blocks, out.Surface, out.SeenAt = string(p.Blocks), p.Surface, p.SeenAt
+	out.Origin.Path, out.Origin.Locator, out.Origin.Open = p.Origin.Path, p.Origin.Locator, p.Origin.Open
+	return out
+}
+
+// listResponse and the response types below it are declared, not assembled
+// from map[string]any: the OpenAPI spec is generated FROM these, so an
+// anonymous map would document the API as "an object" and document nothing.
+// The json tags are unchanged from the map keys they replace -- the wire
+// format is identical, deliberately, so no consumer has to move (v2.27,
+// founder 18-08: migrate before the merge).
+type listResponse struct {
+	Pendencies []pendencyJSON `json:"pendencies"`
+	Count      int            `json:"count"`
+	SweptAt    time.Time      `json:"swept_at"`
+}
+
+type sourcesResponse struct {
+	Sources []sourceJSON `json:"sources"`
+	SweptAt time.Time    `json:"swept_at"`
+}
+
+type projectJSON struct {
+	Slug    string `json:"slug"`
+	Open    int    `json:"open"`
+	Blocked int    `json:"blocked"`
+}
+
+type projectsResponse struct {
+	Projects []projectJSON       `json:"projects"`
+	Graph    map[string][]string `json:"graph"`
+}
+
+// Register mounts the read API on a fuego server (house rule v2.27).
+func (p *Panel) Register(s *fuego.Server) {
+	fuego.Get(s, "/api/pendencies", p.list)
+	fuego.Get(s, "/api/pendencies/{id...}", p.one)
+	fuego.Get(s, "/api/sources", p.sources)
+	fuego.Get(s, "/api/projects", p.projects)
+}
+
+func (p *Panel) list(c fuego.ContextNoBody) (listResponse, error) {
+	snap := p.sweep()
+	who := c.QueryParam("who")
+	class := c.QueryParam("class")
+	source := c.QueryParam("source")
+
+	items := []pendencyJSON{}
+	for _, item := range snap.Result.Pendencies {
+		if who != "" && string(item.Blocks) != who {
+			continue
+		}
+		if class != "" && item.Class != class {
+			continue
+		}
+		if source != "" && !strings.Contains(item.Source, source) {
+			continue
+		}
+		items = append(items, toJSON(item))
+	}
+
+	return listResponse{Pendencies: items, Count: len(items), SweptAt: snap.Result.At}, nil
+}
+
+func (p *Panel) one(c fuego.ContextNoBody) (pendencyJSON, error) {
+	id := c.PathParam("id")
+	for _, item := range p.sweep().Result.Pendencies {
+		if item.ID == id {
+			return toJSON(item), nil
+		}
+	}
+	// A pendency that is gone is not an error in the panel: the source may
+	// have been decided a second ago, and saying so is the honest answer.
+	// The message is in English like every other output string (v2.23) -- it
+	// was the last pt-BR one left in this package.
+	//
+	// The machine-readable code moved from a custom "code" field to RFC 7807's
+	// own "type": fuego owns error serialization and answers Problem Details,
+	// and inventing a parallel field next to the standard's would leave two
+	// places saying the same thing. The panel still needs it -- "gone from the
+	// source" is a normal outcome the UI must tell apart from a real 404.
+	return pendencyJSON{}, fuego.NotFoundError{
+		Err:    errors.New("gone_from_source"),
+		Type:   "gone_from_source",
+		Detail: "this pendency is no longer open in its source",
+	}
+}
+
+type sourceJSON struct {
+	Name  string `json:"name"`
+	Path  string `json:"path,omitempty"`
+	Count int    `json:"count"`
+	Error string `json:"error,omitempty"`
+}
+
+func (p *Panel) sources(c fuego.ContextNoBody) (sourcesResponse, error) {
+	snap := p.sweep()
+	out := []sourceJSON{}
+	for _, s := range snap.Result.Sources {
+		out = append(out, sourceJSON{Name: s.Name, Path: s.Path, Count: s.Count, Error: s.Err})
+	}
+	// Sources that could not be read travel with the rest, marked: absence of
+	// a source is a finding, never silence (spec FR1.3/NFR6).
+	return sourcesResponse{Sources: out, SweptAt: snap.Result.At}, nil
+}
+
+func (p *Panel) projects(c fuego.ContextNoBody) (projectsResponse, error) {
+	snap := p.sweep()
+	byslug := map[string]*projectJSON{}
+	for _, item := range snap.Result.Pendencies {
+		if item.Class != "B" {
+			continue
+		}
+		slug := strings.TrimPrefix(item.Source, "ject:")
+		if byslug[slug] == nil {
+			byslug[slug] = &projectJSON{Slug: slug}
+		}
+		byslug[slug].Open++
+		if item.Blocks == pendency.Gate {
+			byslug[slug].Blocked++
+		}
+	}
+	// Deterministic order: Go randomises map iteration, and a list that
+	// reshuffles between requests reads as if something changed.
+	slugs := make([]string, 0, len(byslug))
+	for slug := range byslug {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	out := []projectJSON{}
+	for _, slug := range slugs {
+		out = append(out, *byslug[slug])
+	}
+	return projectsResponse{Projects: out, Graph: snap.Graph}, nil
+}
+
+// inflightForTest reports the sweep in progress, if any. Exported to the test
+// only: the race it pins is between a sweep and an Invalidate, and there is no
+// way to hit that window without knowing when the sweep has actually started.
+func (p *Panel) inflightForTest() *sweepFlight {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.inflight
+}

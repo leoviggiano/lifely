@@ -7,6 +7,13 @@ ject), mostra o que espera decisão agrupado por **quem bloqueia**, e dirige as
 sessões de desenvolvimento — sempre pedindo a sessão ao ject, nunca por fora
 dele.
 
+> **Estado hoje:** o quadro sai por `lifely scan`, no terminal. O servidor
+> HTTP responde `/healthz` e a **API de leitura** (`/api/pendencies`,
+> `/api/pendencies/{id}`, `/api/sources`, `/api/projects`), com spec OpenAPI
+> gerada em `/swagger/openapi.json`. Não há **nenhuma tela**: os arquivos de
+> `web/` estão embutidos no binário mas nenhuma rota os serve ainda. O parágrafo
+> acima descreve o produto da spec do `lifely-001`, não o que já está de pé.
+
 Duas coisas que ele nunca faz: **dar veredito de [DIREÇÃO]** (quem grava é a
 superfície dona, com o fundador no meio) e **guardar estado de domínio** — a
 verdade vive nos arquivos do tribunal, no ject e no store do Claude.
@@ -15,16 +22,45 @@ verdade vive nos arquivos do tribunal, no ject e no store do Claude.
 
 ```sh
 go build ./cmd/lifely
-./lifely serve            # http://127.0.0.1:7777
+./lifely serve --owner manual   # http://127.0.0.1:7777 (aceita --port e --root)
+./lifely status                 # diz se o painel está de pé, e onde
+./lifely stop --owner manual    # pede o fecho do painel
+./lifely scan                   # varre as fontes e imprime o quadro no terminal
 ```
+
+`--owner` é **obrigatório** em `serve` e `stop` — o binário não adivinha quem
+está pedindo. Um TTY não prova que há uma pessoa digitando (cron, CI e um hook
+do tribunal também têm um), e é essa resposta que decide se o fecho da sessão
+do tribunal pode derrubar um painel que você subiu à mão: `tribunal` só derruba
+o que é `tribunal`.
+
+**Códigos de saída**: `0` fez · `1` falhou · **`3` recusou deliberadamente** —
+o painel continua de pé e o motivo já foi impresso. Um script que fecha o
+tribunal precisa dos três separados: "parei", "quebrei" e "não era meu para
+parar" são decisões diferentes.
 
 O servidor escuta **só em loopback** e recusa requisição cujo `Host` não seja
 um nome de loopback: uma página de outro site não alcança a porta pelo
 navegador. Não há autenticação, e não deve haver.
 
+Só existe **uma instância**: `serve` com o painel já de pé não sobe um
+segundo — reusa o que está rodando e diz a URL. O reuso **transfere a posse**
+numa direção só: `serve --owner manual` sobre um painel do `tribunal` passa a
+ser seu, e o fecho da sessão não o derruba mais.
+
 O `/tribunal` sobe o painel no início da sessão e o derruba no fim — mas
-**só derruba a instância que ele mesmo subiu**. Servidor iniciado à mão
-sobrevive ao fecho da sessão.
+**só derruba a instância que ele mesmo subiu** (`stop --owner tribunal`).
+Servidor iniciado à mão sobrevive ao fecho da sessão.
+
+## Varrer sem o painel
+
+`lifely scan` faz a mesma varredura que o painel e imprime o resultado: as
+pendências agrupadas por quem bloqueia e, depois, o estado de cada fonte —
+fonte que existe e não pôde ser lida sai **marcada**, nunca some, inclusive
+quando não há nenhuma pendência. O repo do tribunal vem de `--root` (padrão
+`~/projects/artifacts`); os tickets vêm do binário `ject` no `PATH` — sem ele,
+a fonte `ject` aparece ilegível, não vazia. O `--root` é o mesmo do `serve`: o
+painel varre exatamente o que este comando varre.
 
 ## Desenvolvimento
 

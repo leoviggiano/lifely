@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.16 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.27 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -76,7 +76,30 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      de entrada escritos; trava de prompt >10 min reporta ao canal);
      ticket nasce inteiro (encomenda em specs/ + corpo do ticket.md, sem
      placeholder sobrevivente); decisão pendente do fundador mora em
-     decisoes.md padronizado (template ject-decisao-pendente). -->
+     decisoes.md padronizado (template ject-decisao-pendente).
+     v2.20 · 18-08-2026 — mensagem de canal declara o que pede (`ação
+     pedida:` ou `nada a fazer — relato`); caso-fonte lifely-020/021
+     (relato de criação lido como encomenda de criar → duplicatas).
+     v2.21 · 18-08-2026 — checklist de evidência antes de reportar
+     (pedido do fundador, após "verde citado 30× sem cobrir o
+     artefato"); coleção viva em tools/erros-comuns.md na bancada.
+     v2.22 · 18-08-2026 — erros-comuns POR PROJETO no vault (pedido do
+     fundador: específico não infla o geral); funil projeto → casa →
+     checklist, subida por recorrência em 2+ projetos.
+     v2.23 · 18-08-2026 — "código 100% em inglês" explicitado: logs,
+     erros e strings de saída SÃO código; exceção só para texto de UI
+     do produto (achado do fundador no lifely).
+     v2.24 · 18-08-2026 — a exceção de UI da v2.23 REVOGADA pelo
+     fundador na mesma hora: UI também nasce em inglês, tradução por
+     i18n, fallback SEMPRE inglês; gotr é a candidata registrada.
+     v2.25 · 18-08-2026 — item 1 do checklist estendido: "…e mede a
+     propriedade que você afirma?" (caso medido da sessão ject:
+     grep -c linhas × ocorrências; auto-aplicada, ledger pendente).
+     v2.26 · 18-08-2026 — commits em inglês (assunto e corpo) em repo
+     de código ([DIREÇÃO] do fundador; guia global emendado com
+     exemplos EN; bancada segue pt-BR por charter).
+     v2.27 · 18-08-2026 — API em Go usa Fuego (padrão da casa por
+     [DIREÇÃO]; caso provado: ject D19, OpenAPI gerado do código). -->
 
 ## ject — este repositório é rastreado
 
@@ -249,9 +272,25 @@ existe para eliminar.
 - Subagentes spawnados para trabalhar tickets recebem o bloco padrão do
   orquestrador (attach no início; relatório de sessão + `context.md` no fim) —
   subagente não herda esta seção sozinho.
-- Código 100% em inglês; conversa e documentação de produto em pt-BR —
-  português normal de conversa: "você" (nunca "tu vais"), frases curtas e
-  diretas; denso no conteúdo, simples na forma.
+- Código 100% em inglês — **e "código" inclui COMMITS (assunto e corpo —
+  v2.26, achado do fundador nos commits pt do lifely: "commit SEMPRE em
+  inglês"), logs, mensagens de erro,
+  nomes de flags, strings de saída E o texto de interface do produto**
+  (v2.23–v2.24; achados do fundador, 18-08: `fmt.Printf("lifely servindo
+  em…")` e, na sequência, "até mesmo a interface do produto deveria ser
+  em inglês"). **UI nasce em inglês e traduz por i18n; o fallback de
+  tradução ausente é SEMPRE inglês** — nenhuma string pt-BR hardcoded em
+  código, nem de log nem de tela. Candidata registrada da casa para i18n
+  em Go: `gotr` (FOUNDER.md, 12-08 — "adoção formal junto do primeiro
+  backend que precisar"); avalie-a antes de escolher outra. Conversa e
+  documentação de produto em pt-BR — português normal: "você" (nunca "tu
+  vais"), frases curtas e diretas; denso no conteúdo, simples na forma.
+- **API em Go usa Fuego** (v2.27; [DIREÇÃO] do fundador, 18-08-2026 —
+  "já se provou útil"; caso provado no registro: ject D19 — "Fuego com
+  OpenAPI gerado do código, UI externa desabilitada", go-fuego/fuego).
+  Vale para API HTTP nova em qualquer repo Go da casa; API já construída
+  sem Fuego não se reescreve por cerimônia — a sessão dona avalia o
+  custo quando tocar nela e escala ao tribunal se divergir do padrão.
 - A bancada da empresa (`~/projects/artifacts`) tem dono único: agente de repo
   NÃO escreve lá — nem template, nem doc. Erro na fonte canônica ou achado que
   precisa da bancada? O canal é mensagem, não escrita: se a sessão da bancada
@@ -283,6 +322,62 @@ existe para eliminar.
   do `ticket.md` preenchido** (Objective/Description/DoD — placeholder do
   esqueleto não sobrevive à criação; substância só em specs/context deixa o
   ticket parecendo vazio no vault).
+- **[DIREÇÃO 18-08] Melhoria alegada exige medição** (life.md 2.5.26):
+  mudança justificada por performance/eficiência/custo/dinheiro entra com
+  (1) baseline medido antes, instrumento nomeado; (2) medição depois no
+  MESMO instrumento; (3) falsificador declarado — o número que, ausente,
+  REVERTE a mudança pelo registro. Melhoria sem número é hipótese: não
+  fecha pauta, não vira "ganho" em relatório. Tendência, nunca meta.
+- **Um ticket por conversa** (18-08, pedido do fundador): ao fechar um
+  ticket — `ject session finish` rodado e relatório ESCRITO — a conversa
+  se encerra ou se limpa (`/clear`); o próximo ticket nasce de
+  `ject start` fresco. A ordem é inegociável: relatório primeiro, limpeza
+  depois — limpar antes de escrever perde o que ainda não virou arquivo.
+  Contexto vem do vault, nunca de sobra de conversa (é a tese do 15.4);
+  a saga de UM ticket (rodadas de portão, fixes) permanece na mesma
+  conversa até ele fechar.
+- **Mensagem de canal é STATUS, nunca relatório** (18-08; feedback do
+  fundador — o texto integral das mensagens renderiza na tela dele):
+  corpo longo (relatório, diff, medição) vai a ARQUIVO (relatório de
+  sessão, context.md, ou `canal/<data>-<slug>.md` no vault do ticket) e a
+  mensagem tem ≤ ~8 linhas no formato
+  `<emoji-tema> <tipo>(<sessão>): o que fez · o que resolve · detalhe: <caminho>`
+  — temas: 🟢 fechado · 🔴 bloqueio/falha · 🟠 espera decisão · 🟣 achado ·
+  🔵 status. O tribunal lê o arquivo na triagem; a tela do fundador vê só
+  o ponteiro. **E toda mensagem declara o que pede do destinatário**: fecha
+  com `ação pedida: <verbo>` ou `nada a fazer — relato` (v2.20; caso-fonte
+  lifely-020/021, 18-08: relato de criação já feita lido como encomenda de
+  criar — duplicatas no vault; relato no passado e encomenda no imperativo
+  têm formas parecidas, e quem recebe não deve precisar adivinhar).
+- **Checklist de evidência ANTES de qualquer reporte** (v2.21; pedido do
+  fundador, 18-08 — caso-fonte: sessão citou "build+test verdes" 30 vezes
+  para mudanças num arquivo que nenhum teste lê). Cinco perguntas, antes
+  de afirmar em relatório ou canal:
+  1. A evidência citada **cobre o artefato mudado — e MEDE a propriedade
+     que você afirma**? Verde de suíte que não lê o arquivo é ruído; e
+     instrumento no arquivo certo medindo a grandeza errada idem
+     (caso-fonte v2.25: `grep -c` conta LINHAS — disse "1" com a frase
+     duplicada na mesma linha; ocorrência se conta com `grep -o | wc -l`).
+  2. **Mediu, ou está supondo?** "Afirmo alcance sem medir" é a classe
+     mais recorrente da casa.
+  3. Afirmação de **ausência** ("não está decidido", "não há registro")
+     passou pela mesma varredura que uma afirmação de presença exigiria?
+  4. **Erro de transporte foi lido como estado do servidor?** Timeout na
+     resposta ≠ comando não chegou — confira o estado antes de repetir.
+  5. **Ordem/estrutura que você supôs foi conferida no arquivo real?**
+     Asserção que checa existência mas não posição deixa o corte errado
+     passar.
+  E os erros específicos DESTE projeto moram em `erros-comuns.md` na
+  raiz do projeto no vault (v2.22) — consulte-o junto do checklist antes
+  de reportar. O funil tem três níveis, cada um mais curto que o
+  anterior: **projeto** (`erros-comuns.md` do vault — erro específico
+  daqui; o agente registra ali mesmo, com caso-fonte e data) → **casa**
+  (`tools/erros-comuns.md` na bancada — classe que apareceu em 2+
+  projetos sobe pelo canal, nunca por cópia direta) → **checklist** (as 5
+  perguntas — promoção só por recorrência e sempre por TROCA). Na dúvida
+  sobre o nível: projeto primeiro; generalizar é decisão do tribunal. O
+  checklist é curto e fixo DE PROPÓSITO — lista que cresce a cada caso
+  vira ruído que se ignora (a mesma lei do hook que apita em tudo).
 - **Decisão pendente do FUNDADOR ganha `decisoes.md` na raiz do ticket**
   (template `ject-decisao-pendente.md`; caso-fonte bot-048, 18-08): um
   bloco por decisão — o-que-se-decide · contexto com registro · opções com
