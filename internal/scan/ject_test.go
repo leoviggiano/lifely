@@ -12,9 +12,6 @@ import (
 	"github.com/leoviggiano/lifely/internal/pendency"
 )
 
-// fakeJect answers like the real binary, so the scanner can be tested without
-// a vault -- and so a change in what lifely ASKS for shows up as a test
-// failure rather than as an empty panel.
 // dirOf gives every ticket a directory, as ject does, unless the test asked
 // for a specific one.
 func dirOf(dirs map[string]string, id string, t *testing.T) string {
@@ -24,6 +21,9 @@ func dirOf(dirs map[string]string, id string, t *testing.T) string {
 	return t.TempDir()
 }
 
+// fakeJect answers like the real binary, so the scanner can be tested without
+// a vault -- and so a change in what lifely ASKS for shows up as a test
+// failure rather than as an empty panel.
 func fakeJect(t *testing.T, dirs map[string]string) Runner {
 	t.Helper()
 	return func(args ...string) ([]byte, error) {
