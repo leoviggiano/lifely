@@ -398,3 +398,22 @@ func TestBoardItemsThatSlugToNothingDoNotCollide(t *testing.T) {
 		t.Errorf("two unnameable items share the id %q", got[0].ID)
 	}
 }
+
+// Two board items with the same bold title in the same lane are TWO items.
+// The board identity used to declare the merge as an accepted cost, which
+// contradicted the ledger identity in the same file: there, a collision pays
+// position precisely so that nothing disappears from the founder's panel.
+func TestTwoBoardItemsWithTheSameTitleDoNotCollide(t *testing.T) {
+	root := t.TempDir()
+	board := "## Faixa 1\n\n- [ ] **Decidir E18** — a ordem\n- [ ] **Decidir E18** — o preço\n"
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(board), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 2 {
+		t.Fatalf("got %d items, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("both items share the id %q -- one vanishes from the panel", got[0].ID)
+	}
+}

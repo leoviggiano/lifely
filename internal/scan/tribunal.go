@@ -98,6 +98,9 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 	var items []pendency.Pendency
 	var faixa string
 	seen := 0
+	// Board keys already emitted, so a repeated title pays position and the
+	// second item does not inherit the first one's conversation.
+	seenBoardKeys := map[string]bool{}
 	var current *pendency.Pendency
 
 	flush := func() {
@@ -137,7 +140,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				// below an insertion and orphans those conversations. And the
 				// title goes in whole, because truncating for display and then
 				// keying on the truncation collapsed two long items into one.
-				ID:     pendency.NewID("founder", boardID(faixa, title, seen)),
+				ID:     pendency.NewID("founder", uniqueBoardID(faixa, title, seen, seenBoardKeys)),
 				Class:  "A1",
 				Source: "FOUNDER.md",
 				// Display only. The id above keys on the RAW line: stripping
@@ -186,6 +189,17 @@ func faixaBlocker(faixa string) pendency.Blocker {
 // boardID builds the A1 identity, falling back to position when the title
 // slugs to nothing: a line made only of punctuation or emoji would otherwise
 // key on the empty string and collapse with every other such line.
+// uniqueBoardID is boardID plus the tiebreak, kept apart so boardID stays a
+// pure function of the row and only the collision pays position.
+func uniqueBoardID(faixa, title string, ordinal int, seen map[string]bool) string {
+	id := boardID(faixa, title, ordinal)
+	if seen[id] {
+		id = pendency.LocationKey(id, strconv.Itoa(ordinal))
+	}
+	seen[id] = true
+	return id
+}
+
 func boardID(faixa, title string, ordinal int) string {
 	if slug := pendency.Slug(boardKey(title)); slug != "" {
 		return "f" + faixa + "-" + slug
@@ -200,10 +214,14 @@ func boardID(faixa, title string, ordinal int) string {
 // is ambiguous. The board's convention is `**Título** — nota`, so the bold
 // title is the name and the note is commentary that ages.
 //
-// Cost, declared: two board items with the same bold title in the same faixa
-// become one pendency. That is the source calling two things by one name --
-// visible to a human reading the board too -- and inventing a distinction here
-// would hide it.
+// Collision is resolved by the CALLER, not accepted here.
+//
+// This used to declare the merge as a cost ("the source calls two things by
+// one name"). That contradicted the ledger identity three screens down, which
+// pays position to keep two same-looking rows apart -- and the reason given
+// there applies verbatim here: an item that vanishes from the panel is a
+// decision the founder never sees, which is worse than a conversation that
+// moves. Same problem, so the same answer.
 func boardKey(line string) string {
 	// Only the bold that OPENS the item counts. Taking any bold run in the
 	// line would key `- [ ] fazer X — **urgente** hoje` on "urgente", and two
@@ -253,11 +271,11 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 			// the only sweep that discovers files, so nothing else would ever
 			// report it (NFR6).
 			//
-			// Absence is the exception, and it became REACHABLE the moment
-			// `serve` gained --root: WalkDir calls this once with the root
-			// itself when the root does not exist, and reporting a typo'd
-			// path as an unreadable LEDGER contradicts every sibling sweep in
-			// this file. A root that is not there has no ledgers to be
+			// Absence is the exception. Tribunal now rejects an absent ROOT
+			// before any sweep runs, so this no longer fires for a typo'd
+			// --root -- it is the guard for a directory that disappears
+			// BETWEEN that check and this walk. Rare, and still not a ledger
+			// failure: a path that is not there has no ledgers to be
 			// unreadable.
 			if os.IsNotExist(err) {
 				return nil
@@ -603,7 +621,10 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	}
 	var items []pendency.Pendency
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "pauta") || filepath.Ext(e.Name()) != ".md" {
+		// `pauta-`, with the hyphen: the source calls itself `pauta-*.md` in
+		// its own label, in the README and here, and a bare "pauta" prefix
+		// also swallowed `pautas-antigas.md` and `pautado.md`.
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "pauta-") || filepath.Ext(e.Name()) != ".md" {
 			continue
 		}
 		path := filepath.Join(root, e.Name())
