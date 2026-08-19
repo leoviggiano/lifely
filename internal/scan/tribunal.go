@@ -826,45 +826,33 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 	path := filepath.Join(root, "life.md")
 	state := SourceState{Name: "life.md", Path: path}
 
-	f, err := os.Open(path)
-	if err != nil {
-		// A source that EXISTS and cannot be read is a finding; one that is
-		// simply not there is normal absence, and marking it unreadable
-		// trains the reader to ignore the marker (SourceState's own contract).
-		if !os.IsNotExist(err) {
-			state.Err = err.Error()
-		}
+	// A source that EXISTS and cannot be read is a finding; one that is
+	// simply not there is normal absence, and marking it unreadable trains
+	// the reader to ignore the marker (SourceState's own contract).
+	doc := md.Read(path)
+	if doc.Missing {
 		return nil, state
 	}
-	defer f.Close()
 
 	var items []pendency.Pendency
 	var heading string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	line := 0
 	// Same tiebreak the board keys get: two identical open markers under one
 	// heading are two items, and one must not inherit the other's conversation.
 	seenLifeKeys := map[string]bool{}
-	// Same fence guard as the board and the decision queue: a `#` or an
-	// [ABERTO] inside a shell snippet is code, not a marker.
-	inFence, fenceOpenedAt := false, 0
-	for sc.Scan() {
-		line++
-		text := sc.Text()
-		if strings.HasPrefix(strings.TrimSpace(text), "```") {
-			inFence = !inFence
-			if inFence {
-				fenceOpenedAt = line
-			}
+	for _, ln := range doc.Lines {
+		// Same fence guard as the board and the decision queue, now the
+		// parser's: a `#` or an [ABERTO] inside a shell snippet is code, not
+		// a marker.
+		if ln.Kind == md.Fenced {
 			continue
 		}
-		if inFence {
-			continue
-		}
+		text := ln.Raw
+		line := ln.Num
 		m, rest, ok := openMarker(text)
-		if strings.HasPrefix(text, "#") {
-			heading = strings.TrimSpace(strings.TrimLeft(text, "# "))
+		if ln.Kind == md.Heading {
+			// The parser requires the space after the hashes, so a `#tag`
+			// stays text and no longer contaminates this locator.
+			heading = ln.Title
 			// A heading that itself RAISES a question is both: it sets the
 			// context and it is an item. Skipping it because it starts with
 			// '#' dropped exactly the markers that someone bothered to
@@ -894,17 +882,10 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 			SeenAt:  now,
 		})
 	}
-	if err := sc.Err(); err != nil {
-		state.Err = err.Error()
-	}
-	if inFence {
-		// The board reports this; the copy that landed here brought only the
-		// skip half, which recreated the silent truncation in life.md.
-		if state.Err != "" {
-			state.Err += "; "
-		}
-		state.Err += fmt.Sprintf("a code fence opened at line %d was never closed; the markers below it were not read", fenceOpenedAt)
-	}
+	// Read failure and unclosed fence, composed once by md.Read: the copy of
+	// the fence guard that used to live here brought only the skip half and
+	// recreated the silent truncation the board had just been fixed for.
+	state.Err = doc.Err
 	state.Count = len(items)
 	return items, state
 }

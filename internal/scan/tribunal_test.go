@@ -460,6 +460,31 @@ func TestFencedCodeBlockDoesNotCloseTheLane(t *testing.T) {
 	}
 }
 
+// A '#' without a space after it is a hashtag, not a heading: '#tag' must not
+// open a section, and '# Tag' must. life.md read '#tag' as a heading and the
+// hashtag contaminated the locator of every marker below it. (defect D6)
+func TestHashWithoutSpaceIsNotASection(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "life.md"),
+		"## Secao real\n\n#tag\n\n[ABERTO] pergunta aberta\n")
+	got := find(Tribunal(root).Pendencies, "A6")
+	if len(got) != 1 {
+		t.Fatalf("got %d markers, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Origin.Locator, "Secao real") {
+		t.Errorf("locator = %q: the hashtag stole the section", got[0].Origin.Locator)
+	}
+
+	write(t, filepath.Join(root, "life.md"), "# Tag\n\n[ABERTO] pergunta aberta\n")
+	got = find(Tribunal(root).Pendencies, "A6")
+	if len(got) != 1 {
+		t.Fatalf("got %d markers, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Origin.Locator, "Tag") {
+		t.Errorf("locator = %q: a real heading did not open its section", got[0].Origin.Locator)
+	}
+}
+
 // A fenced snippet nested under a board item is part of that item's Detail.
 // Inside a fence the line is CONTENT: the guard exists to stop it becoming
 // structure, never to swallow it -- A1 dropped these lines while A7 declared
