@@ -237,6 +237,16 @@ func ticketBlocker(t recentTicket, d ticketDetail, open map[string]bool, unknown
 }
 
 // unmet returns the dependencies that have not closed yet.
+//
+// A dependency absent from `open` is treated as met, and that rests on two
+// facts, not on optimism: the sweep asks for EVERY open ticket (`--limit 0`,
+// after the truncation bug this file already paid for), and `ject doctor`
+// validates that a dependency names a ticket that exists. So absent from the
+// open set means terminal -- done or cancelled -- which is exactly "met".
+//
+// The case this does NOT cover is a dependency pointing at a ticket that never
+// existed; that is a vault error, it belongs to `ject doctor`, and inventing a
+// blocked state here would hide it behind a panel that looks merely cautious.
 func unmet(deps []string, open map[string]bool) []string {
 	var out []string
 	for _, dep := range deps {
