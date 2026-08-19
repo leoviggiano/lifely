@@ -89,8 +89,11 @@ Este repo é **gated**: todo push sai por `git push no-mistakes`. O portão roda
 teste que localize fixture por `runtime.Caller` passa aqui e quebra lá. O `lint`
 do portão são os **dois** comandos acima: `go vet` mais o `doclint`, que recusa
 comentário de doc que ficou no símbolo errado — inserir uma função entre o
-comentário e sua declaração não quebra compilação nem teste, e o `cmd/doclint`
-diz por que isso é lint, e não suíte.
+comentário e sua declaração, ou um membro entre o comentário e a constante que
+ele documenta dentro de um `const(...)`, não quebra compilação nem teste. O
+`doclint` cobre toda forma de declaração: func, type, var e const soltos, e
+cada spec dentro de `const(...)`/`var(...)`/`type(...)`. O `cmd/doclint` diz
+por que isso é lint, e não suíte.
 
 ## Onde mora a verdade
 
