@@ -149,9 +149,10 @@ type docUnit struct {
 // Unparenthesised declarations carry the comment on the GenDecl only (go/parser
 // leaves Spec.Doc nil there), so no unit is reported twice.
 //
-// A spec with no name of its own -- a plain, unaliased import -- yields no
-// unit: with an empty owner set every first word would be somebody else's, and
-// a lint that rejects correct code is worse than no lint.
+// A spec with no name of its own -- an import that is unaliased, or aliased to
+// "_" or "." -- yields no unit: with an empty owner set every first word would
+// be somebody else's, and a lint that rejects correct code is worse than no
+// lint.
 func docUnits(decl ast.Decl) []docUnit {
 	switch d := decl.(type) {
 	case *ast.FuncDecl:
@@ -177,12 +178,17 @@ func docUnits(decl ast.Decl) []docUnit {
 }
 
 // specDoc returns the doc comment attached to a single spec and the names that
-// spec declares. An unaliased import declares no name of its own, so it comes
-// back with an empty set and docUnits drops it.
+// spec declares. An import declares no name of its own unless it is aliased to
+// a real identifier, so it comes back with an empty set and docUnits drops it.
 func specDoc(spec ast.Spec) (*ast.CommentGroup, []string) {
 	switch s := spec.(type) {
 	case *ast.ImportSpec:
-		if s.Name == nil {
+		// A blank or dot alias binds no name a doc comment could open with, so
+		// it counts as unaliased. Treating "_" as an owner made the comment
+		// above a driver import ("// Server needs the postgres driver
+		// registered.") read as misplaced -- the lint failing on correct code,
+		// which is the one thing it must never do.
+		if s.Name == nil || s.Name.Name == "_" || s.Name.Name == "." {
 			return s.Doc, nil
 		}
 		return s.Doc, []string{s.Name.Name}

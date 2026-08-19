@@ -161,6 +161,34 @@ const (
 )
 `,
 	},
+	{
+		// The comment on a driver import names the type that needs the driver,
+		// which is the whole point of writing it. "_" is not an owner.
+		name: "blank import alias owns no name",
+		src: `package fixture
+
+import (
+	// Server needs the strings package linked in.
+	_ "strings"
+)
+
+// Server serves.
+type Server struct{}
+`,
+	},
+	{
+		name: "dot import alias owns no name",
+		src: `package fixture
+
+import (
+	// Server needs these names in scope.
+	. "strings"
+)
+
+// Server serves.
+type Server struct{}
+`,
+	},
 }
 
 // rejected lists one fixture per declaration form where a doc comment names a
