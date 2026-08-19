@@ -132,13 +132,13 @@ const (
 	{
 		// The comment opens with a name the file really declares, so this
 		// fixture only stays quiet while the empty-owner guard in docUnits is
-		// there: an unaliased import owns no name, and without the guard every
-		// first word would belong to somebody else.
-		name: "documented import declares no owner of its own",
+		// there: an import declaration owns no name, and without the guard
+		// every first word would belong to somebody else.
+		name: "comment above an import block owns no name",
 		src: `package fixture
 
+// Trim needs the standard string package.
 import (
-	// Trim is the standard string package.
 	"strings"
 )
 
@@ -163,8 +163,8 @@ const (
 	},
 	{
 		// The comment on a driver import names the type that needs the driver,
-		// which is the whole point of writing it. "_" is not an owner.
-		name: "blank import alias owns no name",
+		// which is the whole point of writing it. No import spec is an owner.
+		name: "comment on a blank import spec",
 		src: `package fixture
 
 import (
@@ -177,16 +177,19 @@ type Server struct{}
 `,
 	},
 	{
-		name: "dot import alias owns no name",
+		name: "comment on an aliased import spec",
 		src: `package fixture
 
 import (
-	// Server needs these names in scope.
-	. "strings"
+	// Server needs the string helpers.
+	sq "strings"
 )
 
 // Server serves.
 type Server struct{}
+
+// Trim trims s.
+func Trim(s string) string { return sq.TrimSpace(s) }
 `,
 	},
 }
@@ -319,21 +322,6 @@ const (
 `,
 		want: 1,
 		says: `"identityGone"`,
-	},
-	{
-		name: "aliased import owns the name it binds",
-		src: `package fixture
-
-import (
-	// Trim is the standard string package.
-	s "strings"
-)
-
-// Trim trims x.
-func Trim(x string) string { return s.TrimSpace(x) }
-`,
-		want: 1,
-		says: `"Trim"`,
 	},
 }
 

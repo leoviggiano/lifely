@@ -92,10 +92,10 @@ comentário de doc que ficou no símbolo errado — inserir uma função entre o
 comentário e sua declaração, ou um membro entre o comentário e a constante que
 ele documenta dentro de um `const(...)`, não quebra compilação nem teste. O
 `doclint` cobre toda forma de declaração: func, type, var e const soltos, e
-cada spec dentro de `const(...)`/`var(...)`/`type(...)`/`import(...)` — import
-só quando tem apelido de verdade (nem `_` nem `.`), porque sem apelido o spec
-não declara nome próprio para o comentário abrir. O `cmd/doclint` diz por que
-isso é lint, e não suíte.
+cada spec dentro de `const(...)`/`var(...)`/`type(...)`. Import fica de fora de
+propósito: um comentário só é acusado quando o símbolo que ele nomeia tem dono,
+e import não declara nome que o lint indexe. O `cmd/doclint` diz por que isso é
+lint, e não suíte.
 
 ## Onde mora a verdade
 
