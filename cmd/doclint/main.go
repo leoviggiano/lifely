@@ -23,15 +23,24 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
 func main() {
+	os.Exit(run(os.Args[1:], os.Stderr))
+}
+
+// run holds the whole program so a test can assert on the exit code without
+// spawning a process: the contract this lint sells to commands.lint is "0 when
+// clean, 1 when it found something", and a contract nothing exercises is the
+// same blind spot this file was fixed for.
+func run(args []string, stderr io.Writer) int {
 	root := "."
-	if len(os.Args) > 1 {
-		root = os.Args[1]
+	if len(args) > 0 {
+		root = args[0]
 	}
 	if root == "." {
 		if found, err := moduleRoot(); err == nil {
@@ -40,16 +49,17 @@ func main() {
 	}
 	problems, err := check(root)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "doclint:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "doclint:", err)
+		return 2
 	}
 	for _, p := range problems {
-		fmt.Fprintln(os.Stderr, p)
+		fmt.Fprintln(stderr, p)
 	}
 	if len(problems) > 0 {
-		fmt.Fprintf(os.Stderr, "doclint: %d doc comment(s) on the wrong symbol\n", len(problems))
-		os.Exit(1)
+		fmt.Fprintf(stderr, "doclint: %d doc comment(s) on the wrong symbol\n", len(problems))
+		return 1
 	}
+	return 0
 }
 
 // check walks root and reports every doc comment attached to a symbol other
@@ -74,34 +84,30 @@ func check(root string) ([]string, error) {
 		}
 
 		for _, decl := range file.Decls {
-			doc := declDoc(decl)
-			if doc == nil {
-				continue
-			}
-			// ONLY the first line, because that is where Go's convention
-			// actually binds: a doc comment OPENS with the name of what it
-			// documents. Everything after is prose, and prose legitimately
-			// names other symbols.
-			//
-			// The previous rule also flagged later paragraphs, which made an
-			// ordinary cross-reference fail the build -- a lint that rejects
-			// correct code is worse than no lint, and this one is wired into
-			// commands.lint with no suppression directive. It still catches
-			// every instance this program was written for: all of them were
-			// blocks glued ABOVE a declaration, so the first line named
-			// somebody else.
-			owners := declaredNames(decl)
-			local := localNames(decl)
-			if len(doc.List) == 0 {
-				continue
-			}
-			fields := strings.Fields(strings.TrimPrefix(doc.List[0].Text, "// "))
-			if len(fields) < 2 || contains(owners, fields[0]) {
-				continue
-			}
-			if declared[fields[0]] || local[fields[0]] {
-				problems = append(problems, fmt.Sprintf("%s:%d: %v carries the doc comment of %q",
-					path, fset.Position(decl.Pos()).Line, owners, fields[0]))
+			for _, unit := range docUnits(decl) {
+				// ONLY the first line, because that is where Go's convention
+				// actually binds: a doc comment OPENS with the name of what it
+				// documents. Everything after is prose, and prose legitimately
+				// names other symbols.
+				//
+				// The previous rule also flagged later paragraphs, which made
+				// an ordinary cross-reference fail the build -- a lint that
+				// rejects correct code is worse than no lint, and this one is
+				// wired into commands.lint with no suppression directive. It
+				// still catches every instance this program was written for:
+				// all of them were blocks glued ABOVE a declaration, so the
+				// first line named somebody else.
+				if len(unit.doc.List) == 0 {
+					continue
+				}
+				fields := strings.Fields(strings.TrimPrefix(unit.doc.List[0].Text, "// "))
+				if len(fields) < 2 || contains(unit.owners, fields[0]) {
+					continue
+				}
+				if declared[fields[0]] || unit.local[fields[0]] {
+					problems = append(problems, fmt.Sprintf("%s:%d: %v carries the doc comment of %q",
+						path, fset.Position(unit.pos).Line, unit.owners, fields[0]))
+				}
 			}
 		}
 		return nil
@@ -109,13 +115,76 @@ func check(root string) ([]string, error) {
 	return problems, err
 }
 
+// docUnit is one doc comment together with the names it is allowed to open
+// with. A declaration can carry several: a parenthesised const/var/type block
+// has its own comment plus one per spec inside it.
+type docUnit struct {
+	doc    *ast.CommentGroup
+	owners []string
+	local  map[string]bool
+	pos    token.Pos
+}
+
+// docUnits returns every doc comment a declaration carries.
+//
+// The blind spot it closes: reading only GenDecl.Doc means a comment attached
+// to a single ValueSpec or TypeSpec inside const(...)/var(...)/type(...) is
+// never examined -- so inserting a member between a comment and the constant it
+// documents compiles, reads wrong, and passed this lint. Owners are per spec,
+// not per block: the block's own names would let a comment name any sibling.
+//
+// Unparenthesised declarations carry the comment on the GenDecl only (go/parser
+// leaves Spec.Doc nil there), so no unit is reported twice.
+//
+// A spec with no name of its own -- a plain import -- yields no unit: with an
+// empty owner set every first word would be somebody else's, and a lint that
+// rejects correct code is worse than no lint.
+func docUnits(decl ast.Decl) []docUnit {
+	switch d := decl.(type) {
+	case *ast.FuncDecl:
+		if d.Doc == nil {
+			return nil
+		}
+		return []docUnit{{doc: d.Doc, owners: []string{d.Name.Name}, local: localNames(d), pos: d.Pos()}}
+	case *ast.GenDecl:
+		var out []docUnit
+		if d.Doc != nil {
+			out = append(out, docUnit{doc: d.Doc, owners: declaredNames(d), pos: d.Pos()})
+		}
+		for _, spec := range d.Specs {
+			doc, names := specDoc(spec)
+			if doc == nil || len(names) == 0 {
+				continue
+			}
+			out = append(out, docUnit{doc: doc, owners: names, pos: spec.Pos()})
+		}
+		return out
+	}
+	return nil
+}
+
+// specDoc returns the doc comment attached to a single spec and the names that
+// spec declares.
+func specDoc(spec ast.Spec) (*ast.CommentGroup, []string) {
+	switch s := spec.(type) {
+	case *ast.TypeSpec:
+		return s.Doc, []string{s.Name.Name}
+	case *ast.ValueSpec:
+		var names []string
+		for _, n := range s.Names {
+			names = append(names, n.Name)
+		}
+		return s.Doc, names
+	}
+	return nil, nil
+}
+
 // localNames returns the receiver and parameter names of a function, which a
 // doc comment must never open with: Go's convention reserves that position for
 // the name of the thing being documented.
-func localNames(decl ast.Decl) map[string]bool {
+func localNames(fn *ast.FuncDecl) map[string]bool {
 	out := map[string]bool{}
-	fn, ok := decl.(*ast.FuncDecl)
-	if !ok {
+	if fn == nil {
 		return out
 	}
 	fields := []*ast.FieldList{fn.Type.Params, fn.Recv}
@@ -132,6 +201,8 @@ func localNames(decl ast.Decl) map[string]bool {
 	return out
 }
 
+// declaredNames returns every top-level name a declaration introduces, which is
+// what the file-wide index of known symbols is built from.
 func declaredNames(decl ast.Decl) []string {
 	switch d := decl.(type) {
 	case *ast.FuncDecl:
@@ -153,16 +224,7 @@ func declaredNames(decl ast.Decl) []string {
 	return nil
 }
 
-func declDoc(decl ast.Decl) *ast.CommentGroup {
-	switch d := decl.(type) {
-	case *ast.FuncDecl:
-		return d.Doc
-	case *ast.GenDecl:
-		return d.Doc
-	}
-	return nil
-}
-
+// contains reports whether needle is one of the names in haystack.
 func contains(haystack []string, needle string) bool {
 	for _, h := range haystack {
 		if h == needle {
