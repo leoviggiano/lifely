@@ -209,11 +209,10 @@ type Store interface {
 `,
 	},
 	{
-		// An embedded field declares no name of its own, so its comment has no
-		// owner and is dropped -- without that rule the first word "Base",
-		// declared at top level, would belong to somebody else and this
-		// correct, ordinary comment would fail the build.
-		name: "comment on an embedded field owns no name",
+		// An embedded field answers to its implicit name -- the unqualified
+		// type name -- so an ordinary comment opening with it is the owner
+		// speaking, not a misplacement.
+		name: "comment on an embedded field owns the implicit name",
 		src: `package fixture
 
 // Base is the common part.
@@ -223,6 +222,23 @@ type Base struct{}
 type Wrapper struct {
 	// Base carries the common part.
 	Base
+}
+`,
+	},
+	{
+		// The implicit name of a qualified embedded type is the bare type
+		// name, exactly as Go derives it: sync.Mutex embeds as Mutex.
+		name: "comment on a qualified embedded field",
+		src: `package fixture
+
+import "sync"
+
+// Panel is the record repository panel.
+type Panel struct {
+	// Mutex guards the panel against concurrent reads.
+	sync.Mutex
+	// Root is the record repository.
+	Root string
 }
 `,
 	},
@@ -388,6 +404,46 @@ type Origin struct {
 `,
 		want: 1,
 		says: `"Path"`,
+	},
+	{
+		// The gate's own trace (finding embedded-field-insertion-unreached):
+		// an inserted EMBEDDED field swallows the displaced comment, because
+		// round one dropped every field with no explicit name. The embedded
+		// field's implicit name is the owner that keeps this reachable.
+		name: "embedded field inserted inside a struct",
+		src: `package fixture
+
+import "sync"
+
+// Panel is the record repository panel.
+type Panel struct {
+	// Root is the record repository.
+	sync.Mutex
+	Root string
+}
+`,
+		want: 1,
+		says: `"Root"`,
+	},
+	{
+		// The reverse displacement: a NAMED field inserted between a comment
+		// and the embedded field it documents. Only reported while the
+		// embedded field's implicit name is in the sibling set -- the
+		// mutation that dropped it from there survived the other fixtures.
+		name: "field inserted above an embedded field",
+		src: `package fixture
+
+import "sync"
+
+// Panel is the record repository panel.
+type Panel struct {
+	// Mutex guards the panel against concurrent reads.
+	Root string
+	sync.Mutex
+}
+`,
+		want: 1,
+		says: `"Mutex"`,
 	},
 	{
 		name: "method inserted inside an interface",

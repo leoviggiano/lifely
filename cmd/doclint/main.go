@@ -20,9 +20,11 @@
 // edits.
 //
 // What it does NOT reach, said plainly so the claim above stays honest:
-// import declarations. An aliased import does bind a name, but reaching it
+// import declarations (an aliased import does bind a name, but reaching it
 // means teaching the file-wide index about aliases too -- a surface of its
-// own (docUnits says why it stays out). A comment above `const (` itself IS
+// own; docUnits says why it stays out), and declarations inside function
+// bodies (only the file's top-level declarations are walked). A comment
+// above `const (` itself IS
 // examined, but it owns every name in the block at once -- Go convention says
 // it documents the GROUP -- so a member slipping in under it is not a
 // misplacement here; it is still flagged when its first word names a symbol
@@ -221,9 +223,15 @@ func docUnits(decl ast.Decl) []docUnit {
 // insertion case visible (the displaced comment names a sibling) without
 // widening anything else.
 //
-// An embedded field declares no name of its own, so it produces no unit --
-// the same empty-owner rule that keeps `import (` comments out, because with
-// no owner every first word belongs to somebody else.
+// An embedded field owns its IMPLICIT name -- the unqualified type name, which
+// is how Go itself addresses it (`sync.Mutex` embeds as `Mutex`). Dropping it
+// instead, as the first round did, left the ticket's own bug class reachable:
+// an embedded field inserted between a comment and the field it documents
+// swallowed the displaced comment and the lint stayed silent (gate finding
+// `embedded-field-insertion-unreached`). A field whose name cannot be derived
+// still produces no unit -- the empty-owner rule that keeps `import (`
+// comments out, because with no owner every first word belongs to somebody
+// else.
 func fieldUnits(ts *ast.TypeSpec) []docUnit {
 	var out []docUnit
 	ast.Inspect(ts.Type, func(n ast.Node) bool {
@@ -241,23 +249,55 @@ func fieldUnits(ts *ast.TypeSpec) []docUnit {
 		}
 		siblings := map[string]bool{}
 		for _, field := range list.List {
-			for _, name := range field.Names {
-				siblings[name.Name] = true
+			for _, name := range fieldNames(field) {
+				siblings[name] = true
 			}
 		}
 		for _, field := range list.List {
-			if field.Doc == nil || len(field.Names) == 0 {
+			owners := fieldNames(field)
+			if field.Doc == nil || len(owners) == 0 {
 				continue
-			}
-			var owners []string
-			for _, name := range field.Names {
-				owners = append(owners, name.Name)
 			}
 			out = append(out, docUnit{doc: field.Doc, owners: owners, local: siblings, pos: field.Pos()})
 		}
 		return true
 	})
 	return out
+}
+
+// fieldNames returns the names a field answers to: its explicit names, or the
+// implicit one an embedded field takes from its type.
+func fieldNames(field *ast.Field) []string {
+	if len(field.Names) > 0 {
+		var out []string
+		for _, name := range field.Names {
+			out = append(out, name.Name)
+		}
+		return out
+	}
+	if name := embeddedName(field.Type); name != "" {
+		return []string{name}
+	}
+	return nil
+}
+
+// embeddedName returns the implicit name of an embedded field: the unqualified
+// type name, with any pointer or type-argument wrapping peeled off, exactly as
+// the language derives it.
+func embeddedName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	case *ast.StarExpr:
+		return embeddedName(t.X)
+	case *ast.IndexExpr:
+		return embeddedName(t.X)
+	case *ast.IndexListExpr:
+		return embeddedName(t.X)
+	}
+	return ""
 }
 
 // specDoc returns the doc comment attached to a single spec and the names that
