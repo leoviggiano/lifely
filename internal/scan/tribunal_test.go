@@ -459,3 +459,23 @@ func TestFencedCodeBlockDoesNotCloseTheLane(t *testing.T) {
 		t.Fatal("the item after the fenced block was not swept at all")
 	}
 }
+
+// An unbalanced code fence must be a FINDING, never silence. The fence guard
+// skips everything between fences, so a fence that never closes swallowed the
+// rest of the founder's board with nothing on screen to say so.
+func TestUnbalancedFenceIsReported(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Antes**\n\n```sh\n# a cerca nunca fecha\n\n- [ ] **Perdido**\n")
+
+	res := Tribunal(root)
+	var marked bool
+	for _, s := range res.Sources {
+		if s.Name == "FOUNDER.md" && strings.Contains(s.Err, "never closed") {
+			marked = true
+		}
+	}
+	if !marked {
+		t.Error("the board was truncated by an unbalanced fence and nothing said so")
+	}
+}

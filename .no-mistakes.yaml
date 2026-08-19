@@ -35,10 +35,12 @@ commands:
   #   go vet -trimpath ./...  1,46s   (shares the build test just did)
   # 4,1x. FALSIFIER: if a later measurement in a fresh gate worktree shows
   # `-trimpath` no faster than without, this line goes back.
-  # vet plus the tagged source-hygiene checks. They are NOT in `go test ./...`
-  # on purpose: the suite means "the program works", and a doc-comment
-  # assertion is not that. Run here so the check still guards every push.
-  lint: "go vet -trimpath ./... && go test -trimpath -tags lint ./internal/scan/"
+  # vet plus doclint. doclint is a PROGRAM, not a test: an assertion about
+  # source shape does not belong in `go test ./...`, where green must mean
+  # "the program works". It is written in Go rather than as a script because
+  # a lint needing a second runtime is a lint that stops running the day the
+  # gate's PATH changes -- which cost this repo an hour on 19-08.
+  lint: "go vet -trimpath ./... && go run ./cmd/doclint ."
   format: "gofmt -w ."
 
 auto_fix:                       # gate detects; ject fixes (house decision, 2.5.10)

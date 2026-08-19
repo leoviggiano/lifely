@@ -141,7 +141,11 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	inFence := false
+	// Where the open fence started, so an unbalanced one can say WHERE rather
+	// than just that something is wrong.
+	fenceOpenedAt, boardLine := 0, 0
 	for sc.Scan() {
+		boardLine++
 		line := sc.Text()
 		// A `#` inside a fenced block is code, not a section. Widening the
 		// lane rule to every heading level widened this too: a board showing
@@ -149,6 +153,9 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 		// send everything below it out of the founder's group.
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			inFence = !inFence
+			if inFence {
+				fenceOpenedAt = boardLine
+			}
 			continue
 		}
 		if inFence {
@@ -215,6 +222,16 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 	flush()
 	if err := sc.Err(); err != nil {
 		state.Err = err.Error()
+	}
+	if inFence {
+		// An unbalanced fence swallowed everything after it, silently. This is
+		// the founder's own agenda: losing its tail without a word is the
+		// worst outcome this scanner has -- worse than a wrong lane, because
+		// nothing on screen hints that anything is missing.
+		if state.Err != "" {
+			state.Err += "; "
+		}
+		state.Err += fmt.Sprintf("a code fence opened at line %d was never closed; the board below it was not read", fenceOpenedAt)
 	}
 	state.Count = len(items)
 	return items, state
