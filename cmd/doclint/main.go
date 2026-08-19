@@ -23,12 +23,11 @@
 // import declarations (an aliased import does bind a name, but reaching it
 // means teaching the file-wide index about aliases too -- a surface of its
 // own; docUnits says why it stays out), and declarations inside function
-// bodies (only the file's top-level declarations are walked). A comment
-// above `const (` itself IS
-// examined, but it owns every name in the block at once -- Go convention says
-// it documents the GROUP -- so a member slipping in under it is not a
-// misplacement here; it is still flagged when its first word names a symbol
-// declared somewhere else in the file.
+// bodies (only the file's top-level declarations are walked). A comment above
+// `const (` itself IS examined, but it owns every name in the block at once --
+// Go convention says it documents the GROUP -- so a member slipping in under
+// it is not a misplacement here; it is still flagged when its first word names
+// a symbol declared somewhere else in the file.
 package main
 
 import (
