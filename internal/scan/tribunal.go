@@ -10,7 +10,6 @@ package scan
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -622,30 +621,21 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 	}
 	path := filepath.Join(dir, latest, "summary.md")
 	state.Path = path
-	if _, err := os.Stat(path); err != nil {
-		// A round in progress has no summary yet. That is normal absence, not
-		// an unreadable source: reporting it as UNREADABLE trains the reader to
-		// ignore the one marker that should always mean something.
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, state
-		}
-		state.Err = err.Error()
+	// A round in progress has no summary yet. That is normal absence, not an
+	// unreadable source: reporting it as UNREADABLE trains the reader to
+	// ignore the one marker that should always mean something.
+	doc := md.Read(path)
+	if doc.Missing {
 		return nil, state
 	}
+	// A read failure -- or an unclosed fence, which md.Read reports the same
+	// composed way -- is a finding; what WAS read as structure still decides
+	// whether the round carries anything forward.
+	state.Err = doc.Err
 	// Only a summary that actually carries something forward is a pendency.
 	// Emitting one unconditionally would mean the panel could never reach
 	// zero -- and "nada pendente" is a result the panel must be able to show.
-	body, err := os.ReadFile(path)
-	if err != nil {
-		// Same answer the listing above gives: a summary that is not there is
-		// a round in progress, not an unreadable source. It can vanish between
-		// the two calls, and the two must not disagree about what that means.
-		if !os.IsNotExist(err) {
-			state.Err = err.Error()
-		}
-		return nil, state
-	}
-	if !carriesForward(string(body)) {
+	if !carriesForward(doc) {
 		return nil, state
 	}
 	state.Count = 1
@@ -677,19 +667,27 @@ func obsidianURI(path string) string {
 
 // carriesForward reports whether a session summary leaves something open.
 //
-// The marker is the summary's own vocabulary: a section naming what is
+// The marker is the summary's own vocabulary: a HEADING naming what is
 // pending, blocked or carried over. Absent that, the round closed clean.
-func carriesForward(body string) bool {
+// Only structure decides: this used to match the whole body as one string,
+// so a `## Pendencias` inside a fenced example counted a clean round as
+// carrying work forward -- the same fence class the other scanners paid for.
+func carriesForward(doc *md.Doc) bool {
 	// These stay in Portuguese on purpose: they are DATA, not output. They
 	// match the vocabulary of the summaries this scanner reads, and
 	// translating them would simply stop the matcher from matching.
-	lower := strings.ToLower(body)
-	for _, marker := range []string{
-		"## pendente", "## pendências", "## pendencias",
-		"## em aberto", "## atravessa", "## bloque",
-	} {
-		if strings.Contains(lower, marker) {
-			return true
+	for _, ln := range doc.Lines {
+		if ln.Kind != md.Heading {
+			continue
+		}
+		title := strings.ToLower(ln.Title)
+		for _, marker := range []string{
+			"pendente", "pendências", "pendencias",
+			"em aberto", "atravessa", "bloque",
+		} {
+			if strings.HasPrefix(title, marker) {
+				return true
+			}
 		}
 	}
 	return false

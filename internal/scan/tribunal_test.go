@@ -460,6 +460,19 @@ func TestFencedCodeBlockDoesNotCloseTheLane(t *testing.T) {
 	}
 }
 
+// A `## Pendencias` inside a fenced example is content, never a carried-over
+// section: carriesForward matched the whole body as one string, so a clean
+// round whose summary SHOWS the template read as carrying work forward.
+// (defect D4)
+func TestFencedPendencyHeadingDoesNotCarryForward(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "sessions", "2026-08-19", "summary.md"),
+		"# Sessao\n\n## Entregue\n\ntudo fechado.\n\n```markdown\n## Pendencias\n\nexemplo de template.\n```\n")
+	if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 0 {
+		t.Errorf("a fenced example heading produced %d pendencies, want 0", len(got))
+	}
+}
+
 // A '#' without a space after it is a hashtag, not a heading: '#tag' must not
 // open a section, and '# Tag' must. life.md read '#tag' as a heading and the
 // hashtag contaminated the locator of every marker below it. (defect D6)
