@@ -171,12 +171,12 @@ func toJSON(p pendency.Pendency) pendencyJSON {
 	return out
 }
 
-// Routes registers the read API.
-// The response types are declared, not assembled from map[string]any: the
-// OpenAPI spec is generated FROM these, so an anonymous map would document the
-// API as "an object" and document nothing. The json tags are unchanged from
-// the map keys they replace -- the wire format is identical, deliberately, so
-// no consumer has to move (v2.27, founder 18-08: migrate before the merge).
+// listResponse and the response types below it are declared, not assembled
+// from map[string]any: the OpenAPI spec is generated FROM these, so an
+// anonymous map would document the API as "an object" and document nothing.
+// The json tags are unchanged from the map keys they replace -- the wire
+// format is identical, deliberately, so no consumer has to move (v2.27,
+// founder 18-08: migrate before the merge).
 type listResponse struct {
 	Pendencies []pendencyJSON `json:"pendencies"`
 	Count      int            `json:"count"`
