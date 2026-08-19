@@ -62,7 +62,7 @@ func usage() {
 
 Uso:
   lifely serve [--port N] [--owner tribunal|manual]   sobe o painel
-  lifely scan [--root DIR]                            varre e imprime a mesa
+  lifely scan [--root DIR]                            sweep and print the board
   lifely status                                       diz se ha painel de pe
   lifely stop [--owner tribunal|manual]               derruba o painel
 `)
@@ -194,7 +194,7 @@ func scanCmd(args []string) error {
 
 	res := scanpkg.Tribunal(*root)
 	if len(res.Pendencies) == 0 {
-		fmt.Println("Nada pendente. As fontes foram varridas agora e nada espera decisao. Zero e resultado.")
+		fmt.Println("Nothing pending. The sources were swept just now and nothing awaits a decision. Zero is a result.")
 		// Zero pendencies must never hide a source that could not be read:
 		// "nada pendente" would then mean "we did not look", and the empty
 		// screen is exactly where nobody goes looking for a failure (NFR6).
@@ -202,7 +202,7 @@ func scanCmd(args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%d pendencias · varrido as %s\n", len(res.Pendencies), res.At.Format("15:04"))
+	fmt.Printf("%d pendencies · swept at %s\n", len(res.Pendencies), res.At.Format("15:04"))
 	for _, g := range []pendency.Blocker{pendency.Founder, pendency.Gate, pendency.AI, pendency.Hygiene} {
 		var inGroup []pendency.Pendency
 		for _, p := range res.Pendencies {
@@ -227,10 +227,10 @@ func printSources(sources []scanpkg.SourceState) {
 	if len(sources) == 0 {
 		return
 	}
-	fmt.Print("\nFONTES\n")
+	fmt.Print("\nSOURCES\n")
 	for _, s := range sources {
 		if s.Err != "" {
-			fmt.Printf("  %s ILEGIVEL: %s\n", pad(s.Name, 30), s.Err)
+			fmt.Printf("  %s UNREADABLE: %s\n", pad(s.Name, 30), s.Err)
 			continue
 		}
 		fmt.Printf("  %s %d\n", pad(s.Name, 30), s.Count)
@@ -238,10 +238,10 @@ func printSources(sources []scanpkg.SourceState) {
 }
 
 var groupLabel = map[pendency.Blocker]string{
-	pendency.Founder: "ESPERANDO O FUNDADOR",
-	pendency.Gate:    "GATES ESPERANDO RESPOSTA",
-	pendency.AI:      "IA PREPARA",
-	pendency.Hygiene: "HIGIENE",
+	pendency.Founder: "WAITING ON THE FOUNDER",
+	pendency.Gate:    "GATES AWAITING AN ANSWER",
+	pendency.AI:      "AI PREPARES",
+	pendency.Hygiene: "HYGIENE",
 }
 
 func defaultRoot() string {

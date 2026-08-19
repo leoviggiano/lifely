@@ -124,7 +124,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				Detail:  title,
 				Blocks:  faixaBlocker(faixa),
 				Origin:  pendency.Origin{Path: path, Locator: "Faixa " + faixa, Open: obsidianURI(path)},
-				Surface: "veredito no FOUNDER.md",
+				Surface: "verdict in FOUNDER.md",
 				SeenAt:  now,
 			}
 			current = &p
@@ -422,7 +422,7 @@ func surfaceFor(rel string) string {
 	case strings.Contains(rel, "auto-aplicadas"):
 		return "/auto-aplicadas"
 	default:
-		return "a superfície dona do ledger"
+		return "the surface that owns the ledger"
 	}
 }
 
@@ -460,7 +460,7 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 	state.Path = path
 	if _, err := os.Stat(path); err != nil {
 		// A round in progress has no summary yet. That is normal absence, not
-		// an unreadable source: reporting it as ILEGIVEL trains the reader to
+		// an unreadable source: reporting it as UNREADABLE trains the reader to
 		// ignore the one marker that should always mean something.
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, state
@@ -484,10 +484,10 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 		ID:      pendency.NewID("summary", latest),
 		Class:   "A3",
 		Source:  "sessions/" + latest,
-		Title:   "Pendências que atravessam a rodada de " + latest,
+		Title:   "Pending items carried over from the round of " + latest,
 		Blocks:  pendency.Hygiene,
 		Origin:  pendency.Origin{Path: path, Locator: latest, Open: obsidianURI(path)},
-		Surface: "leitura do summary",
+		Surface: "read the summary",
 		SeenAt:  now,
 	}}, state
 }
@@ -511,6 +511,9 @@ func obsidianURI(path string) string {
 // The marker is the summary's own vocabulary: a section naming what is
 // pending, blocked or carried over. Absent that, the round closed clean.
 func carriesForward(body string) bool {
+	// These stay in Portuguese on purpose: they are DATA, not output. They
+	// match the vocabulary of the summaries this scanner reads, and
+	// translating them would simply stop the matcher from matching.
 	lower := strings.ToLower(body)
 	for _, marker := range []string{
 		"## pendente", "## pendências", "## pendencias",
@@ -542,10 +545,10 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 			ID:      pendency.NewID("pauta", pendency.Slug(e.Name())),
 			Class:   "A4",
 			Source:  e.Name(),
-			Title:   "Pauta em aberto: " + e.Name(),
+			Title:   "Open agenda item: " + e.Name(),
 			Blocks:  pendency.Founder,
 			Origin:  pendency.Origin{Path: path, Open: obsidianURI(path)},
-			Surface: "o arquivo de pauta",
+			Surface: "the agenda file",
 			SeenAt:  now,
 		})
 	}
@@ -571,7 +574,7 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	if err != nil {
 		// A root that is not a repository has no tree to be dirty: that is
 		// normal absence, the same call the summary makes, and reporting it as
-		// ILEGIVEL trains the reader to ignore the marker that should always
+		// UNREADABLE trains the reader to ignore the marker that should always
 		// mean something.
 		// Ask the filesystem, not git's prose: git ships translated messages,
 		// so matching "not a git repository" breaks under any other locale.
@@ -600,11 +603,11 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		ID:      pendency.NewID("git", "arvore-suja"),
 		Class:   "A5",
 		Source:  "git status",
-		Title:   "Árvore com alterações não commitadas",
+		Title:   "Working tree has uncommitted changes",
 		Detail:  strings.Join(lines, "\n"),
 		Blocks:  pendency.Hygiene,
 		Origin:  pendency.Origin{Path: root, Locator: "git status"},
-		Surface: "commit na sessão dona do lote",
+		Surface: "commit from the session that owns the batch",
 		SeenAt:  now,
 	}}, state
 }
@@ -663,7 +666,7 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 			Detail:  text,
 			Blocks:  pendency.Founder,
 			Origin:  pendency.Origin{Path: path, Locator: heading + ":" + strconv.Itoa(line), Open: obsidianURI(path)},
-			Surface: "emenda no life.md, pelo tribunal",
+			Surface: "amend life.md, through the tribunal",
 			SeenAt:  now,
 		})
 	}
