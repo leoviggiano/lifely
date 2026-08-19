@@ -44,6 +44,15 @@ type SourceState struct {
 	Note string
 }
 
+// reportable says whether a source earns its line on the panel: open items,
+// a read failure, or a Note. The filter used to check Count and Err only, so
+// a source whose whole story was "read, but cut short" vanished silently --
+// contradicting the contract SourceState declares for Note two lines above
+// its own definition.
+func reportable(s SourceState) bool {
+	return s.Count > 0 || s.Err != "" || s.Note != ""
+}
+
 // Result is one whole sweep.
 type Result struct {
 	Pendencies []pendency.Pendency
@@ -78,7 +87,7 @@ func Tribunal(root string) Result {
 		res.Pendencies = append(res.Pendencies, items...)
 		// A source with nothing open is omitted: a "0 pending" line is noise,
 		// and the panel is an index, not an inventory (spec FR1.4).
-		if state.Count > 0 || state.Err != "" {
+		if reportable(state) {
 			res.Sources = append(res.Sources, state)
 		}
 	}

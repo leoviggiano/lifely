@@ -44,6 +44,26 @@ func TestZeroPendenciesStillReportsUnreadableSources(t *testing.T) {
 	}
 }
 
+// A source whose only content is a Note must reach the panel: Note is the
+// partial-read remark SourceState itself defines ("the board is partial,
+// nothing failed"), and the filter checked only Count and Err -- dropping
+// exactly the line that says the sweep was cut short. (defect D7)
+func TestNoteOnlySourceIsReported(t *testing.T) {
+	for _, c := range []struct {
+		state SourceState
+		want  bool
+	}{
+		{SourceState{Note: "sweep stopped at its budget"}, true},
+		{SourceState{Count: 1}, true},
+		{SourceState{Err: "unreadable"}, true},
+		{SourceState{}, false},
+	} {
+		if got := reportable(c.state); got != c.want {
+			t.Errorf("reportable(%+v) = %v, want %v", c.state, got, c.want)
+		}
+	}
+}
+
 // A directory that cannot be walked is a finding too: `ledgers` is the only
 // sweep that discovers files, so nothing else would ever report it.
 func TestUnwalkableDirectoryIsReported(t *testing.T) {

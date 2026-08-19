@@ -208,16 +208,18 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		}
 		states = append(states, st)
 	}
-	if decisionCount > 0 || decisionErr != "" || len(budgetCut) > 0 {
-		// The budget cut applies here too: tickets we never opened may hold
-		// decisions waiting on the founder, so this source under-reports for
-		// the same reason the ject ones do -- and it is the one source where
-		// silence is least affordable.
-		note := ""
-		if cut := len(budgetCut); cut > 0 {
-			note = fmt.Sprintf("the sweep budget was spent; tickets listed without detail in %d project(s) were not read for decisions", cut)
-		}
-		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: decisionErr, Note: note})
+	// The budget cut applies here too: tickets we never opened may hold
+	// decisions waiting on the founder, so this source under-reports for
+	// the same reason the ject ones do -- and it is the one source where
+	// silence is least affordable.
+	note := ""
+	if cut := len(budgetCut); cut > 0 {
+		note = fmt.Sprintf("the sweep budget was spent; tickets listed without detail in %d project(s) were not read for decisions", cut)
+	}
+	// The same one-place filter the tribunal sweeps go through: a state whose
+	// only content is a Note still earns its line.
+	if st := (SourceState{Name: "decisoes.md", Count: decisionCount, Err: decisionErr, Note: note}); reportable(st) {
+		states = append(states, st)
 	}
 	return items, states, graph
 }
