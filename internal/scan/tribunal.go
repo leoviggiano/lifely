@@ -192,7 +192,16 @@ func faixaBlocker(faixa string) pendency.Blocker {
 // uniqueBoardID is boardID plus the tiebreak, kept apart so boardID stays a
 // pure function of the row and only the collision pays position.
 func uniqueBoardID(faixa, title string, ordinal int, seen map[string]bool) string {
-	id := boardID(faixa, title, ordinal)
+	return uniqueKey(boardID(faixa, title, ordinal), ordinal, seen)
+}
+
+// uniqueKey is the tiebreak both marker sweeps use: a key already emitted in
+// this file pays its position, and only that one.
+//
+// One function, because the review that found the board collision named A1 and
+// A6 together and the fix landed on A1 alone -- exactly the "sweep the other
+// side first" rule this repo keeps paying for.
+func uniqueKey(id string, ordinal int, seen map[string]bool) string {
 	if seen[id] {
 		id = pendency.LocationKey(id, strconv.Itoa(ordinal))
 	}
@@ -737,6 +746,9 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	line := 0
+	// Same tiebreak the board keys get: two identical open markers under one
+	// heading are two items, and one must not inherit the other's conversation.
+	seenLifeKeys := map[string]bool{}
 	for sc.Scan() {
 		line++
 		text := sc.Text()
@@ -759,7 +771,7 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 			// runes for the panel, and two markers that differ only past that
 			// point would share an id and one would vanish. Same defect the
 			// A1 identity had; swept here in the same pass.
-			ID:     pendency.NewID("life", pendency.LocationKey(heading, strings.TrimSpace(text))),
+			ID:     pendency.NewID("life", uniqueKey(pendency.LocationKey(heading, strings.TrimSpace(text)), line, seenLifeKeys)),
 			Class:  "A6",
 			Source: "life.md",
 			// Display only, like A1: life.md marks weight with emphasis too,

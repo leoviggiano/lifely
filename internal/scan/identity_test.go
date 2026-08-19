@@ -417,3 +417,21 @@ func TestTwoBoardItemsWithTheSameTitleDoNotCollide(t *testing.T) {
 		t.Errorf("both items share the id %q -- one vanishes from the panel", got[0].ID)
 	}
 }
+
+// Two identical open markers under one life.md heading are two items. The
+// review that found this named A1 AND A6; the fix landed on A1 alone, so A6
+// kept minting one id for two markers for another whole round.
+func TestTwoLifeMarkersWithTheSameTextDoNotCollide(t *testing.T) {
+	root := t.TempDir()
+	body := "## 2.5 Direção\n\n- [ABERTO] revisar o portão\n- [ABERTO] revisar o portão\n"
+	if err := os.WriteFile(filepath.Join(root, "life.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A6")
+	if len(got) != 2 {
+		t.Fatalf("the fixture produced %d A6 markers, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("both markers share the id %q -- one vanishes from the panel", got[0].ID)
+	}
+}

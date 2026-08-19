@@ -488,16 +488,37 @@ func scanCmd(args []string) error {
 	}
 
 	res, _ := scanpkg.All(*root, scanpkg.CLI)
+
+	// The HEADLINE has to carry it, not just the source list at the bottom.
+	// A sweep that could not read something is not a clean sweep, and the
+	// invariant this command was built on says it in full: "nothing pending"
+	// must never be the answer to "I never looked".
+	unread := 0
+	for _, s := range res.Sources {
+		if s.Err != "" {
+			unread++
+		}
+	}
+
 	if len(res.Pendencies) == 0 {
+		if unread > 0 {
+			fmt.Printf("Nothing pending in what could be read -- but %d source(s) could not be read. This is NOT a clean board.\n", unread)
+			printSources(res.Sources)
+			return errIncomplete
+		}
 		fmt.Println("Nothing pending. The sources were swept just now and nothing is waiting on a decision. Zero is a result.")
-		// Zero pendencies must never hide a source that could not be read:
-		// "nothing pending" would then mean "we did not look", and the empty
-		// screen is exactly where nobody goes looking for a failure (NFR6).
 		printSources(res.Sources)
 		return nil
 	}
 
-	fmt.Printf("%d pendencies · swept at %s\n", len(res.Pendencies), res.At.Format("15:04"))
+	// The count leads, and the gap in it leads with it: a reader who stops at
+	// the first line must not walk away believing the board is whole.
+	if unread > 0 {
+		fmt.Printf("%d pendencies · swept at %s · INCOMPLETE: %d source(s) could not be read\n",
+			len(res.Pendencies), res.At.Format("15:04"), unread)
+	} else {
+		fmt.Printf("%d pendencies · swept at %s\n", len(res.Pendencies), res.At.Format("15:04"))
+	}
 	for _, g := range []pendency.Blocker{pendency.Founder, pendency.Gate, pendency.AI, pendency.Hygiene} {
 		var inGroup []pendency.Pendency
 		for _, p := range res.Pendencies {
@@ -515,6 +536,9 @@ func scanCmd(args []string) error {
 	}
 
 	printSources(res.Sources)
+	if unread > 0 {
+		return errIncomplete
+	}
 	return nil
 }
 
@@ -590,6 +614,12 @@ type flagParseError struct{ err error }
 
 func (e *flagParseError) Error() string { return e.err.Error() }
 func (e *flagParseError) Unwrap() error { return e.err }
+
+// errIncomplete reports a sweep that ran but could not read every source. It
+// exits non-zero because a script that treats a partial board as a clean one
+// is exactly the failure the panel exists to prevent -- and the sources it did
+// read are still printed, because a partial answer beats no answer.
+var errIncomplete = errors.New("the sweep could not read every source")
 
 // errRefused reports a stop deliberately not performed. It exits non-zero so a
 // script can tell refusal from success; the reason is already printed.
