@@ -123,24 +123,31 @@ func TestForceDoesNotBypassOwnership(t *testing.T) {
 // began failing before Running() could clear the file. Two correct fixes that
 // cancelled each other.
 func TestCorruptMarkerIsHealedNotADeadEnd(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// One corrupt marker per command. Calling status() first healed it, so the
+	// stop() assertion below ran against a clean cache and proved nothing --
+	// a test passing for the wrong reason, which is worse than a missing one.
+	for name, run := range map[string]func() error{
+		"status": status,
+		"stop":   func() error { return stop([]string{"--owner", "manual"}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
-	path, err := runtime.Path()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("{ isto nao e json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+			path, err := runtime.Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("{ this is not json"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 
-	if err := status(); err != nil {
-		t.Errorf("status() with a corrupt marker = %v, want nil", err)
-	}
-	if err := stop([]string{"--owner", "manual"}); err != nil {
-		t.Errorf("stop with a corrupt marker = %v, want nil", err)
-	}
-	if _, err := runtime.Read(); err != runtime.ErrNoMarker {
-		t.Errorf("the corrupt marker survived both commands: %v", err)
+			if err := run(); err != nil {
+				t.Errorf("%s() with a corrupt marker = %v, want nil", name, err)
+			}
+			if _, err := runtime.Read(); err != runtime.ErrNoMarker {
+				t.Errorf("%s() left the corrupt marker behind: %v", name, err)
+			}
+		})
 	}
 }

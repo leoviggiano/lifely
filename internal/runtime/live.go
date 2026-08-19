@@ -168,7 +168,12 @@ func Running() (Marker, bool) {
 		}
 		return Marker{}, false
 	}
-	if !m.Live() {
+	// Clear only what is provably GONE. A foreign identity means the pid is
+	// alive and we could not recognise it -- a daemon renamed by an upgrade,
+	// or `go run` under another binary name -- and erasing its registration
+	// would strand a running process with no way for status or stop to find
+	// it. Not-ours is a reason to leave it alone, not to delete it.
+	if !m.Live() && m.probe() == identityGone {
 		if _, rmErr := removeIfUnchanged(m); rmErr != nil {
 			fmt.Fprintf(os.Stderr, "lifely: could not clear the orphaned marker: %v\n", rmErr)
 		}

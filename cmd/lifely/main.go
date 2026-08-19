@@ -91,6 +91,12 @@ func serve(args []string) error {
 	// below: an exclusive create, decided by the filesystem for every caller
 	// at once, including two `serve --port` asking for different ports. This
 	// check exists to give a good message, not to guarantee anything.
+	// Absence and failure are different answers, and serve acts on them very
+	// differently: on absence it starts a daemon, on failure it would start a
+	// SECOND one while the first is still up.
+	if _, perr := runtime.Peek(); perr != nil && !errors.Is(perr, runtime.ErrNoMarker) && !runtime.IsCorrupt(perr) {
+		return fmt.Errorf("could not read the daemon marker: %w", perr)
+	}
 	if live, ok := runtime.Running(); ok {
 		return announceReuse(live, who, fs, *port)
 	}
