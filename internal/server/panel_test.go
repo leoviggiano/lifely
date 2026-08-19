@@ -92,8 +92,9 @@ func TestUnknownPendencyIsGoneNotBroken(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
-	if body["code"] != "gone_from_source" {
-		t.Errorf("code = %v, want gone_from_source", body["code"])
+	// RFC 7807's own field, not a custom "code": fuego answers Problem Details.
+	if body["type"] != "gone_from_source" {
+		t.Errorf("type = %v, want gone_from_source", body["type"])
 	}
 }
 

@@ -1,11 +1,13 @@
 package server
 
 import (
-	"net/http"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-fuego/fuego"
 
 	"github.com/leoviggiano/lifely/internal/pendency"
 	"github.com/leoviggiano/lifely/internal/scan"
@@ -117,18 +119,46 @@ func toJSON(p pendency.Pendency) pendencyJSON {
 }
 
 // Routes registers the read API.
-func (p *Panel) Routes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/pendencies", p.list)
-	mux.HandleFunc("GET /api/pendencies/{id...}", p.one)
-	mux.HandleFunc("GET /api/sources", p.sources)
-	mux.HandleFunc("GET /api/projects", p.projects)
+// The response types are declared, not assembled from map[string]any: the
+// OpenAPI spec is generated FROM these, so an anonymous map would document the
+// API as "an object" and document nothing. The json tags are unchanged from
+// the map keys they replace -- the wire format is identical, deliberately, so
+// no consumer has to move (v2.27, founder 18-08: migrate before the merge).
+type listResponse struct {
+	Pendencies []pendencyJSON `json:"pendencies"`
+	Count      int            `json:"count"`
+	SweptAt    time.Time      `json:"swept_at"`
 }
 
-func (p *Panel) list(w http.ResponseWriter, r *http.Request) {
+type sourcesResponse struct {
+	Sources []sourceJSON `json:"sources"`
+	SweptAt time.Time    `json:"swept_at"`
+}
+
+type projectJSON struct {
+	Slug    string `json:"slug"`
+	Open    int    `json:"open"`
+	Blocked int    `json:"blocked"`
+}
+
+type projectsResponse struct {
+	Projects []projectJSON       `json:"projects"`
+	Graph    map[string][]string `json:"graph"`
+}
+
+// Register mounts the read API on a fuego server (house rule v2.27).
+func (p *Panel) Register(s *fuego.Server) {
+	fuego.Get(s, "/api/pendencies", p.list)
+	fuego.Get(s, "/api/pendencies/{id...}", p.one)
+	fuego.Get(s, "/api/sources", p.sources)
+	fuego.Get(s, "/api/projects", p.projects)
+}
+
+func (p *Panel) list(c fuego.ContextNoBody) (listResponse, error) {
 	snap := p.sweep()
-	who := r.URL.Query().Get("who")
-	class := r.URL.Query().Get("class")
-	source := r.URL.Query().Get("source")
+	who := c.QueryParam("who")
+	class := c.QueryParam("class")
+	source := c.QueryParam("source")
 
 	items := []pendencyJSON{}
 	for _, item := range snap.Result.Pendencies {
@@ -144,27 +174,31 @@ func (p *Panel) list(w http.ResponseWriter, r *http.Request) {
 		items = append(items, toJSON(item))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"pendencies": items,
-		"count":      len(items),
-		"swept_at":   snap.Result.At,
-	})
+	return listResponse{Pendencies: items, Count: len(items), SweptAt: snap.Result.At}, nil
 }
 
-func (p *Panel) one(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (p *Panel) one(c fuego.ContextNoBody) (pendencyJSON, error) {
+	id := c.PathParam("id")
 	for _, item := range p.sweep().Result.Pendencies {
 		if item.ID == id {
-			writeJSON(w, http.StatusOK, toJSON(item))
-			return
+			return toJSON(item), nil
 		}
 	}
 	// A pendency that is gone is not an error in the panel: the source may
 	// have been decided a second ago, and saying so is the honest answer.
-	writeJSON(w, http.StatusNotFound, map[string]string{
-		"code":  "gone_from_source",
-		"error": "essa pendencia nao esta mais aberta na fonte",
-	})
+	// The message is in English like every other output string (v2.23) -- it
+	// was the last pt-BR one left in this package.
+	//
+	// The machine-readable code moved from a custom "code" field to RFC 7807's
+	// own "type": fuego owns error serialization and answers Problem Details,
+	// and inventing a parallel field next to the standard's would leave two
+	// places saying the same thing. The panel still needs it -- "gone from the
+	// source" is a normal outcome the UI must tell apart from a real 404.
+	return pendencyJSON{}, fuego.NotFoundError{
+		Err:    errors.New("gone_from_source"),
+		Type:   "gone_from_source",
+		Detail: "this pendency is no longer open in its source",
+	}
 }
 
 type sourceJSON struct {
@@ -174,7 +208,7 @@ type sourceJSON struct {
 	Error string `json:"error,omitempty"`
 }
 
-func (p *Panel) sources(w http.ResponseWriter, r *http.Request) {
+func (p *Panel) sources(c fuego.ContextNoBody) (sourcesResponse, error) {
 	snap := p.sweep()
 	out := []sourceJSON{}
 	for _, s := range snap.Result.Sources {
@@ -182,25 +216,19 @@ func (p *Panel) sources(w http.ResponseWriter, r *http.Request) {
 	}
 	// Sources that could not be read travel with the rest, marked: absence of
 	// a source is a finding, never silence (spec FR1.3/NFR6).
-	writeJSON(w, http.StatusOK, map[string]any{"sources": out, "swept_at": snap.Result.At})
+	return sourcesResponse{Sources: out, SweptAt: snap.Result.At}, nil
 }
 
-func (p *Panel) projects(w http.ResponseWriter, r *http.Request) {
+func (p *Panel) projects(c fuego.ContextNoBody) (projectsResponse, error) {
 	snap := p.sweep()
-	type project struct {
-		Slug       string   `json:"slug"`
-		Open       int      `json:"open"`
-		Blocked    int      `json:"blocked"`
-		Dependents []string `json:"-"`
-	}
-	byslug := map[string]*project{}
+	byslug := map[string]*projectJSON{}
 	for _, item := range snap.Result.Pendencies {
 		if item.Class != "B" {
 			continue
 		}
 		slug := strings.TrimPrefix(item.Source, "ject:")
 		if byslug[slug] == nil {
-			byslug[slug] = &project{Slug: slug}
+			byslug[slug] = &projectJSON{Slug: slug}
 		}
 		byslug[slug].Open++
 		if item.Blocks == pendency.Gate {
@@ -214,9 +242,9 @@ func (p *Panel) projects(w http.ResponseWriter, r *http.Request) {
 		slugs = append(slugs, slug)
 	}
 	sort.Strings(slugs)
-	out := []project{}
+	out := []projectJSON{}
 	for _, slug := range slugs {
 		out = append(out, *byslug[slug])
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": out, "graph": snap.Graph})
+	return projectsResponse{Projects: out, Graph: snap.Graph}, nil
 }
