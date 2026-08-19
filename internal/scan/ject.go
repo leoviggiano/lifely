@@ -165,7 +165,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 			Class:   "B",
 			Source:  "ject:" + t.Project,
 			Title:   t.ID + " — " + t.Title,
-			Detail:  ticketDetailLine(t, detail, open),
+			Detail:  ticketDetailLine(t, detail, open, derr != nil),
 			Blocks:  ticketBlocker(t, detail, open, derr != nil),
 			Origin:  pendency.Origin{Path: detail.Dir, Locator: t.ID, Open: "ject ticket show " + t.ID},
 			Surface: "ject start " + t.ID + " --attached",
@@ -278,7 +278,7 @@ func unmet(deps []string, open map[string]bool) []string {
 	return out
 }
 
-func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool) string {
+func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unknown bool) string {
 	parts := []string{t.Status, t.Priority}
 	if t.Progress.Total > 0 {
 		parts = append(parts, "checklist "+strconv.Itoa(t.Progress.Done)+"/"+strconv.Itoa(t.Progress.Total))
@@ -288,6 +288,12 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool) stri
 	}
 	if blocked := unmet(d.Dependencies, open); len(blocked) > 0 {
 		parts = append(parts, "blocked: depends on "+strings.Join(blocked, ", "))
+	}
+	if unknown {
+		// Say WHY it is held back. A ticket marked `gate` with no reason reads
+		// as a judgement; it is an admission that we could not read its
+		// dependencies.
+		parts = append(parts, "blocked: detail could not be read, dependencies unknown")
 	}
 	return strings.Join(parts, " · ")
 }
