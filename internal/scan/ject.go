@@ -382,11 +382,18 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 	var id, title string
 	var body []string
 	pendingBlock := false
+	// The third and last site of this class. All eight NewID call sites were
+	// swept before this fix: ticket ids, summary directories, agenda filenames
+	// and the git marker are unique by construction; A1, A6 and A7 are the
+	// three that key on text a human types twice.
+	seenDecisions := map[string]bool{}
+	block := 0
 
 	flush := func() {
 		if id != "" && pendingBlock {
+			block++
 			items = append(items, pendency.Pendency{
-				ID:     pendency.NewID("decisao:"+ticketID, strings.ToLower(id)),
+				ID:     pendency.NewID("decisao:"+ticketID, uniqueKey(strings.ToLower(id), block, seenDecisions)),
 				Class:  "A7",
 				Source: "decisoes.md · " + ticketID,
 				Title:  ticketID + " " + id + " — " + title,

@@ -38,7 +38,10 @@ func main() {
 		// flag.ContinueOnError already wrote the message and the usage to
 		// stderr; printing it again under "lifely:" says the same thing twice
 		// and buries the usage between two copies of one sentence.
-		if errors.Is(err, flag.ErrHelp) || alreadyReported(err) {
+		// errIncomplete has already printed the headline AND the source list;
+		// main adding "lifely: the sweep could not read every source" made a
+		// partial sweep say the same thing three times.
+		if errors.Is(err, flag.ErrHelp) || errors.Is(err, errIncomplete) || alreadyReported(err) {
 			os.Exit(1)
 		}
 		fmt.Fprintln(os.Stderr, "lifely:", err)
@@ -76,6 +79,7 @@ Usage:
   lifely serve --owner manual|tribunal [--port N] [--root DIR]
                                                       start the panel
   lifely scan [--root DIR]                            sweep the sources and print the board
+                                                      (exits 1 if any source could not be read)
   lifely status                                       report whether the panel is up
   lifely stop --owner manual|tribunal [--force]       stop the panel
 `)

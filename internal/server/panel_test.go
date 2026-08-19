@@ -102,6 +102,11 @@ func TestUnknownPendencyIsGoneNotBroken(t *testing.T) {
 // A source that could not be read travels with the rest, marked -- absence of
 // a source is a finding, never silence (spec NFR6).
 func TestSourcesReportTheUnreadable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		// Same guard its siblings in internal/scan carry: root reads through a
+		// 0o000 file, so without this the test would pass by not testing.
+		t.Skip("running as root: permission bits do not block reads")
+	}
 	p := fixture(t)
 	// UNREADABLE, not absent: absence is normal and reports nothing (the
 	// SourceState contract). This test removed the file and still demanded a

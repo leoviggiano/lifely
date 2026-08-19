@@ -35,7 +35,14 @@ do tribunal também têm um), e é essa resposta que decide se o fecho da sessã
 do tribunal pode derrubar um painel que você subiu à mão: `tribunal` só derruba
 o que é `tribunal`.
 
-**Códigos de saída**: `0` fez · `1` falhou · **`3` recusou deliberadamente** —
+`lifely scan` **sai 1 quando alguma fonte não pôde ser lida** — e o gatilho mais
+comum não é repositório quebrado, é binário ausente: sem o `ject` no `PATH`, a
+fonte `ject` aparece ilegível e a varredura é parcial. O quadro sai assim mesmo,
+com o cabeçalho marcado `INCOMPLETE`; o código de saída existe para o script que
+não pode tratar quadro parcial como quadro limpo.
+
+**Códigos de saída**: `0` fez · `1` falhou (ou varredura parcial) · **`3` recusou
+deliberadamente** —
 o painel continua de pé e o motivo já foi impresso. Um script que fecha o
 tribunal precisa dos três separados: "parei", "quebrei" e "não era meu para
 parar" são decisões diferentes.

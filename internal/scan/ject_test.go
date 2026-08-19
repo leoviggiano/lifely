@@ -530,3 +530,24 @@ func TestStatusWithEmphasisIsStillPending(t *testing.T) {
 		}
 	}
 }
+
+// Two decision blocks with the same id in one decisoes.md are two decisions.
+// A7 was the third and last identity site missing this tiebreak -- found one
+// round after A6, which was found one round after A1.
+func TestTwoDecisionBlocksWithTheSameIdDoNotCollide(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · a ordem\n\n**Status:** pendente\n\n## D1 · o preço\n\n**Status:** pendente\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, errStr := decisions(dir, "lifely-001", time.Now(), true)
+	if errStr != "" {
+		t.Fatalf("decisions() reported %q", errStr)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d decisions, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("both blocks share the id %q -- one vanishes from the founder's queue", got[0].ID)
+	}
+}
