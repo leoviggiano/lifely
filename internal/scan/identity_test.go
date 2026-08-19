@@ -168,9 +168,12 @@ func TestLedgerRowsDifferingOnlyByDateDoNotCollide(t *testing.T) {
 	}
 }
 
-// The panel renders text, not markdown -- and the id must NOT move when a
-// board author bolds a word, so the title is cleaned for display while the
-// identity keeps keying on the raw line.
+// The panel renders text, not markdown: the title is cleaned for display.
+//
+// The identity is a different question and it keys on the RAW line, so bolding
+// a word DOES mint a new id -- the declared cost of keying on what the row
+// says about itself (see naturalKey). This comment used to claim the opposite
+// of what the assertion below checks; the assertion is the one that was right.
 func TestBoardTitleIsPlainTextButIdentityIsNot(t *testing.T) {
 	root := t.TempDir()
 	board := "## Faixa 1\n\n- [ ] **Construir o lifely** -- aprovado\n"

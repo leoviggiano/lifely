@@ -10,8 +10,9 @@ dele.
 > **Estado hoje:** o quadro sai por `lifely scan`, no terminal. O servidor
 > HTTP responde `/healthz` e a **API de leitura** (`/api/pendencies`,
 > `/api/pendencies/{id}`, `/api/sources`, `/api/projects`), com spec OpenAPI
-> gerada em `/swagger/openapi.json`. Não há **nenhuma tela**: os arquivos de
-> `web/` estão embutidos no binário mas nenhuma rota os serve ainda. O parágrafo
+> gerada em `/swagger/openapi.json`. Não há **nenhuma tela**: o pacote `web/`
+> existe no repositório e **nenhum código o importa** — nada é embutido no
+> binário e nenhuma rota serve arquivo. O parágrafo
 > acima descreve o produto da spec do `lifely-001`, não o que já está de pé.
 
 Duas coisas que ele nunca faz: **dar veredito de [DIREÇÃO]** (quem grava é a

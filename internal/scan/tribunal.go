@@ -240,6 +240,16 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 			// A directory we cannot walk is a finding, not a shrug: this is
 			// the only sweep that discovers files, so nothing else would ever
 			// report it (NFR6).
+			//
+			// Absence is the exception, and it became REACHABLE the moment
+			// `serve` gained --root: WalkDir calls this once with the root
+			// itself when the root does not exist, and reporting a typo'd
+			// path as an unreadable LEDGER contradicts every sibling sweep in
+			// this file. A root that is not there has no ledgers to be
+			// unreadable.
+			if os.IsNotExist(err) {
+				return nil
+			}
 			rel, _ := filepath.Rel(root, path)
 			if state.Err != "" {
 				state.Err += "; "

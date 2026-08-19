@@ -369,3 +369,15 @@ func TestLatestSummaryIgnoresNonDateDirectories(t *testing.T) {
 		t.Errorf("the stray directory won the pick: %q", got[0].Source)
 	}
 }
+
+// A --root that does not exist has no ledgers to be unreadable. The check
+// became reachable when `serve` gained --root: a typo in the flag used to come
+// back as "the ledgers are unreadable", pointing the reader at the wrong thing.
+func TestAbsentRootIsNotAnUnreadableLedger(t *testing.T) {
+	res := Tribunal(filepath.Join(t.TempDir(), "does-not-exist"))
+	for _, s := range res.Sources {
+		if s.Err != "" {
+			t.Errorf("source %q on an absent root reported: %q", s.Name, s.Err)
+		}
+	}
+}

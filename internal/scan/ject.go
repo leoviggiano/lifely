@@ -318,15 +318,6 @@ func describeExec(tool string, err error) string {
 
 // --- A7: decisoes.md, the founder's decision queue --------------------------
 
-// decisions reads the ticket's decision queue.
-//
-// This is the one source read as a file rather than through a command: no ject
-// command returns decisoes.md yet. If one appears, this should use it -- the
-// exception is declared in the spec, not smuggled in here.
-// errBudgetSpent marks a row whose detail was never ATTEMPTED. It travels the
-// same path as a failed read because both leave dependencies unknown, but the
-// reason shown to the reader must differ: "could not be read" about a call
-// that was never made sends the founder looking for a broken vault.
 // statusIsPending reads the STATUS WORD, not the line.
 //
 // `strings.Contains(line, "pendente")` counted `**Status:** decidido (antes:
@@ -349,8 +340,17 @@ func statusIsPending(value string) bool {
 	return false
 }
 
+// errBudgetSpent marks a row whose detail was never ATTEMPTED. It travels the
+// same path as a failed read because both leave dependencies unknown, but the
+// reason shown to the reader must differ: "could not be read" about a call
+// that was never made sends the founder looking for a broken vault.
 var errBudgetSpent = errors.New("detail not read: the sweep budget was spent")
 
+// decisions reads the ticket's decision queue.
+//
+// This is the one source read as a file rather than through a command: no ject
+// command returns decisoes.md yet. If one appears, this should use it -- the
+// exception is declared in the spec, not smuggled in here.
 func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency.Pendency, string) {
 	if dir == "" {
 		if !detailRead {
