@@ -159,14 +159,14 @@ func Running() (Marker, bool) {
 			// later serve will trip over the same file -- but it must not
 			// turn "no daemon" into an error for the caller.
 			if rmErr := removeIfCorrupt(); rmErr != nil {
-				fmt.Fprintf(os.Stderr, "lifely: nao consegui limpar o marcador corrompido: %v\n", rmErr)
+				fmt.Fprintf(os.Stderr, "lifely: could not clear the corrupt marker: %v\n", rmErr)
 			}
 		}
 		return Marker{}, false
 	}
 	if !m.Live() {
 		if rmErr := removeIfUnchanged(m); rmErr != nil {
-			fmt.Fprintf(os.Stderr, "lifely: nao consegui limpar o marcador orfao: %v\n", rmErr)
+			fmt.Fprintf(os.Stderr, "lifely: could not clear the orphaned marker: %v\n", rmErr)
 		}
 		return Marker{}, false
 	}

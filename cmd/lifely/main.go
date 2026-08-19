@@ -58,12 +58,12 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `lifely -- painel local de pendências e orquestrador do desenvolvimento
+	fmt.Fprint(os.Stderr, `lifely -- local panel of pending decisions and orchestrator of the work
 
-Uso:
-  lifely serve [--port N] [--owner tribunal|manual]   sobe o painel
-  lifely status                                       diz se ha painel de pe
-  lifely stop --owner manual|tribunal [--force]       derruba o painel
+Usage:
+  lifely serve [--port N] [--owner tribunal|manual]   start the panel
+  lifely status                                       report whether the panel is up
+  lifely stop --owner manual|tribunal [--force]       stop the panel
 `)
 }
 
@@ -118,7 +118,7 @@ func serve(args []string) error {
 			// copy of this logic would drift from the first (it already did).
 			live, ok := runtime.Running()
 			if !ok {
-				return fmt.Errorf("outro lifely subiu e saiu enquanto eu registrava; tente de novo")
+				return fmt.Errorf("another lifely came up and left while I was registering; try again")
 			}
 			return announceReuse(live, who, fs, *port)
 		}
@@ -137,7 +137,7 @@ func serve(args []string) error {
 		errs <- err
 	}()
 
-	fmt.Printf("lifely servindo em http://127.0.0.1:%d (dono: %s)\n", bound, who)
+	fmt.Printf("lifely serving at http://127.0.0.1:%d (owner: %s)\n", bound, who)
 
 	// Named `signals`, not `stop`: `stop` is the command function, and
 	// shadowing it here makes the two impossible to tell apart at a glance.
@@ -163,28 +163,28 @@ func announceReuse(live runtime.Marker, who runtime.Owner, fs *flag.FlagSet, wan
 		if errors.Is(err, runtime.ErrChanged) || errors.Is(err, runtime.ErrNoMarker) {
 			// Exit non-zero: nothing is serving on our behalf, and telling a
 			// script "the panel is up" when it is not is the worse lie.
-			return fmt.Errorf("o daemon mudou enquanto eu olhava; rode `lifely serve` de novo")
+			return fmt.Errorf("the daemon changed while I was looking; run `lifely serve` again")
 		}
 		// Never swallow the rest: an unexpected failure here means the marker
 		// is in a state nobody understands, and reporting "reusando" would
 		// hide it behind good news.
-		return fmt.Errorf("transferindo a posse do daemon: %w", err)
+		return fmt.Errorf("transferring daemon ownership: %w", err)
 	}
 
 	// Both facts can be true at once, and the port notice is the one that
 	// changes what the caller does next -- so it is appended, not replaced.
 	ignored := ""
 	if portWasSet(fs) && wanted != live.Port {
-		ignored = fmt.Sprintf("; a porta %d que voce pediu foi ignorada", wanted)
+		ignored = fmt.Sprintf("; the port %d you asked for was ignored", wanted)
 	}
 
 	switch {
 	case moved:
-		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d -- reusando, e a posse passa a ser sua (o fecho do tribunal nao o derruba mais)%s\n", live.Port, ignored)
+		fmt.Printf("lifely is already running at http://127.0.0.1:%d -- reusing it; ownership is now yours (closing the tribunal will not stop it)%s\n", live.Port, ignored)
 	case ignored != "":
-		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando%s\n", live.Port, live.Owner, ignored)
+		fmt.Printf("lifely is already running at http://127.0.0.1:%d (owner: %s) -- reusing it%s\n", live.Port, live.Owner, ignored)
 	default:
-		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
+		fmt.Printf("lifely is already running at http://127.0.0.1:%d (owner: %s) -- reusing it\n", live.Port, live.Owner)
 	}
 	return nil
 }
@@ -216,14 +216,14 @@ func status() error {
 	// daemon, which is the honest answer. Only a marker we could not READ --
 	// permissions, I/O -- is a failure the caller has to hear about.
 	if _, err := runtime.Peek(); err != nil && !errors.Is(err, runtime.ErrNoMarker) && !runtime.IsCorrupt(err) {
-		return fmt.Errorf("nao consegui ler o marcador do daemon: %w", err)
+		return fmt.Errorf("could not read the daemon marker: %w", err)
 	}
 	live, ok := runtime.Running()
 	if !ok {
-		fmt.Println("lifely nao esta de pe")
+		fmt.Println("lifely is not running")
 		return nil
 	}
-	fmt.Printf("lifely de pe em http://127.0.0.1:%d (pid %d, dono: %s, versao %s)\n",
+	fmt.Printf("lifely running at http://127.0.0.1:%d (pid %d, owner: %s, version %s)\n",
 		live.Port, live.PID, live.Owner, live.Version)
 	return nil
 }
@@ -245,7 +245,7 @@ func stop(args []string) error {
 	// guessed. One flag costs the founder four words; a wrong guess costs him
 	// the panel he was reading.
 	if *owner == "" {
-		return errors.New("diga quem pede: --owner manual (voce) ou --owner tribunal (o fecho da sessao)")
+		return errors.New("say who is asking: --owner manual (you) or --owner tribunal (the session close)")
 	}
 	asker, perr := parseOwner(*owner)
 	if perr != nil {
@@ -265,7 +265,7 @@ func stop(args []string) error {
 	live, err := runtime.Peek()
 	switch {
 	case errors.Is(err, runtime.ErrNoMarker):
-		fmt.Println("lifely nao esta de pe")
+		fmt.Println("lifely is not running")
 		return nil
 	case runtime.IsCorrupt(err):
 		// Heal instead of dead-ending: an unparseable marker would otherwise
@@ -275,16 +275,16 @@ func stop(args []string) error {
 			// Say what is true: the healing may fail (permissions, a racing
 			// writer), and claiming "descartado" would send the caller away
 			// believing a file that is still there is gone.
-			fmt.Println("marcador ilegivel e nao consegui descarta-lo; lifely nao esta de pe")
+			fmt.Println("the marker is unreadable and I could not clear it; lifely is not running")
 			return nil
 		}
-		fmt.Println("marcador ilegivel foi descartado; lifely nao esta de pe")
+		fmt.Println("marcador ilegivel foi descartado; lifely is not running")
 		return nil
 	case err != nil:
 		// A marker we could not read is not the same as no marker: saying
-		// "nao esta de pe" with exit 0 would tell a script the panel is down
+		// "not running" with exit 0 would tell a script the panel is down
 		// when the truth is that we do not know.
-		return fmt.Errorf("nao consegui ler o marcador do daemon: %w", err)
+		return fmt.Errorf("could not read the daemon marker: %w", err)
 	}
 
 	// The tribunal closing its session must not take down a server the
@@ -293,22 +293,22 @@ func stop(args []string) error {
 	// pre-check here would print "segue de pe" for a daemon it never probed.
 	switch err = live.Stop(asker); {
 	case err == nil:
-		fmt.Printf("lifely (pid %d, dono: %s) recebeu o pedido de parada\n", live.PID, live.Owner)
+		fmt.Printf("lifely (pid %d, owner: %s) received the stop request\n", live.PID, live.Owner)
 		return nil
 	case errors.Is(err, runtime.ErrGone):
-		fmt.Println("lifely nao esta mais de pe")
+		fmt.Println("lifely is no longer running")
 		return nil
 	case errors.Is(err, runtime.ErrNotOwner):
 		// Reached only after the probe said the daemon is alive, so the
 		// message can say so honestly.
-		fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
+		fmt.Printf("lifely is still running at http://127.0.0.1:%d: %v\n", live.Port, err)
 		return errRefused
 	case errors.Is(err, runtime.ErrForeign), errors.Is(err, runtime.ErrUnidentified):
 		// One shape, not two: both mean "the pid is not a daemon we can act on
 		// normally", and the only difference is what we tell the caller.
-		what := "e de outro programa"
+		what := "belongs to another program"
 		if errors.Is(err, runtime.ErrUnidentified) {
-			what = "nao pode ser identificado"
+			what = "cannot be identified"
 		}
 		switch {
 		case *force && live.MayStop(asker):
@@ -321,18 +321,18 @@ func stop(args []string) error {
 			// is sent. Merging the branches was right; merging the message
 			// hid a signal behind the word "limpeza".
 			if errors.Is(err, runtime.ErrForeign) {
-				fmt.Printf("marcador do pid %d descartado (--force); o processo %s e segue rodando\n", live.PID, what)
+				fmt.Printf("marker for pid %d cleared (--force); the process %s and is still running\n", live.PID, what)
 			} else {
-				fmt.Printf("SIGTERM enviado ao pid %d (--force); o processo %s\n", live.PID, what)
+				fmt.Printf("SIGTERM sent to pid %d (--force); the process %s\n", live.PID, what)
 			}
 			return nil
 		case *force:
 			// The flag was given and the guard still refused: it was
 			// ownership, not identity. Suggesting --force again would send the
 			// caller in a circle.
-			fmt.Printf("lifely nao mexeu no pid %d: %v\n", live.PID, runtime.ErrNotOwner)
+			fmt.Printf("lifely did not touch pid %d: %v\n", live.PID, runtime.ErrNotOwner)
 		default:
-			fmt.Printf("lifely nao mexeu no pid %d: o processo %s (%v) -- use --force se tiver certeza\n", live.PID, what, err)
+			fmt.Printf("lifely did not touch pid %d: the process %s (%v) -- use --force if you are sure\n", live.PID, what, err)
 		}
 		return errRefused
 	}
@@ -341,4 +341,4 @@ func stop(args []string) error {
 
 // errRefused reports a stop deliberately not performed. It exits non-zero so a
 // script can tell refusal from success; the reason is already printed.
-var errRefused = errors.New("stop recusado")
+var errRefused = errors.New("stop refused")
