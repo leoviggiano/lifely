@@ -6,13 +6,39 @@ import (
 	"testing"
 )
 
-func TestLive(t *testing.T) {
-	// Our own pid is, by construction, the same program we are.
-	if !(Marker{PID: os.Getpid()}).Live() {
-		t.Error("Live() on our own pid = false, want true")
+// Asserted through probe(), which is what production reads. The exported
+// Live() these tests used to call had no caller left outside this file: a
+// public predicate kept alive by its own tests proves nothing about the
+// daemon, because nothing in the daemon asks it anything.
+// The whole of Running's policy, in one table. Two successive fixes put an
+// identity in the wrong branch: the first ERASED a live daemon it failed to
+// recognise, the second reported a stranger as our own. Both were one line.
+func TestVerdictPerIdentity(t *testing.T) {
+	for _, c := range []struct {
+		id            identity
+		report, erase bool
+		why           string
+	}{
+		{identityOurs, true, false, "our own daemon"},
+		{identityUnknown, true, false, "alive but unidentified: may be ours, so never erase and never start a second"},
+		{identityForeign, false, false, "a stranger: not a daemon, and not ours to erase"},
+		{identityGone, false, true, "nobody there: the marker is an orphan"},
+	} {
+		report, erase := verdict(c.id)
+		if report != c.report || erase != c.erase {
+			t.Errorf("verdict(%v) = (report %v, erase %v), want (%v, %v) -- %s",
+				c.id, report, erase, c.report, c.erase, c.why)
+		}
 	}
-	if (Marker{PID: 0}).Live() {
-		t.Error("Live() on pid 0 = true, want false")
+}
+
+func TestProbeIdentifiesTheProcessBehindAMarker(t *testing.T) {
+	// Our own pid is, by construction, the same program we are.
+	if got := (Marker{PID: os.Getpid()}).probe(); got != identityOurs {
+		t.Errorf("probe() on our own pid = %v, want identityOurs", got)
+	}
+	if got := (Marker{PID: 0}).probe(); got != identityGone {
+		t.Errorf("probe() on pid 0 = %v, want identityGone", got)
 	}
 
 	// A process that has exited is not live -- and its marker must not keep
@@ -25,8 +51,8 @@ func TestLive(t *testing.T) {
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("waiting on the throwaway process: %v", err)
 	}
-	if (Marker{PID: pid}).Live() {
-		t.Errorf("Live() on the exited pid %d = true, want false", pid)
+	if got := (Marker{PID: pid}).probe(); got != identityGone {
+		t.Errorf("probe() on the exited pid %d = %v, want identityGone", pid, got)
 	}
 }
 
@@ -78,8 +104,8 @@ func stranger(t *testing.T) int {
 // SIGTERM a stranger -- the worst failure this package can produce.
 func TestLiveRejectsARecycledPID(t *testing.T) {
 	pid := stranger(t)
-	if (Marker{PID: pid}).Live() {
-		t.Errorf("Live() on pid %d (a live `sleep`) = true: a foreign process passed as our daemon", pid)
+	if got := (Marker{PID: pid}).probe(); got != identityForeign {
+		t.Errorf("probe() on pid %d (a live `sleep`) = %v: a foreign process passed as our daemon", pid, got)
 	}
 }
 

@@ -124,6 +124,14 @@ func serve(args []string) error {
 			// copy of this logic would drift from the first (it already did).
 			live, ok := runtime.Running()
 			if !ok {
+				// "Try again" is a lie when the marker is not going anywhere.
+				// A surviving marker whose pid the OS recycled blocks Claim
+				// forever: Running refuses to call it ours (right) and
+				// refuses to erase it (also right), so the caller has to be
+				// told what actually stands in the way and how to clear it.
+				if stale, perr := runtime.Peek(); perr == nil {
+					return fmt.Errorf("a marker for pid %d is in the way and it is not a lifely daemon; clear it with `lifely stop --force --owner %s`", stale.PID, who)
+				}
 				return fmt.Errorf("another lifely came up and left while I was registering; try again")
 			}
 			return announceReuse(live, who, fs, *port)
@@ -346,7 +354,10 @@ func stop(args []string) error {
 				// nothing of ours was signalled.
 				fmt.Printf("marker for pid %d cleared (--force); no daemon of ours was there, and nothing was signalled\n", live.PID)
 			default:
-				fmt.Printf("SIGTERM sent to pid %d (--force); the process %s\n", live.PID, what)
+				// Say only what force itself established. `what` came from the
+				// probe taken BEFORE ForceStop ran, and the branch above
+				// already refuses to repeat it for exactly this reason.
+				fmt.Printf("SIGTERM sent to pid %d (--force)\n", live.PID)
 			}
 			return nil
 		case *force:

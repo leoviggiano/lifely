@@ -128,19 +128,6 @@ func (m Marker) probeAlive() bool {
 	return m.probe() != identityGone
 }
 
-// Live reports whether the marker still describes a running lifely.
-//
-// A marker outlives a crash, and the OS recycles pids -- so liveness alone is
-// not enough: a stale marker can point at somebody else's process.
-func (m Marker) Live() bool {
-	switch m.probe() {
-	case identityOurs, identityUnknown:
-		return true
-	default:
-		return false
-	}
-}
-
 // Running returns the live daemon, if there is one.
 //
 // A marker left behind by a dead process is cleared as a side effect -- but
@@ -177,16 +164,36 @@ func Running() (Marker, bool) {
 	// Anything alive-but-unrecognised is left exactly as it is and reported
 	// as no daemon: we may neither trust it nor destroy its registration.
 	// One probe, because each one forks `ps` on non-Linux hosts.
-	switch m.probe() {
-	case identityOurs:
-		return m, true
-	case identityGone:
+	report, erase := verdict(m.probe())
+	if erase {
 		if _, rmErr := removeIfUnchanged(m); rmErr != nil {
 			fmt.Fprintf(os.Stderr, "lifely: could not clear the orphaned marker: %v\n", rmErr)
 		}
+	}
+	if !report {
 		return Marker{}, false
-	default:
-		return Marker{}, false
+	}
+	return m, true
+}
+
+// verdict maps an identity to the only two decisions Running makes: whether to
+// report a daemon, and whether the marker may be erased. It is a plain table
+// so the four cases can be pinned by a test -- identityUnknown in particular
+// cannot be produced from a real process, and folding it into the wrong branch
+// (twice, in successive fixes) is what made this table worth existing.
+func verdict(id identity) (report, erase bool) {
+	switch id {
+	case identityOurs:
+		return true, false
+	case identityUnknown:
+		// Alive, and we could not tell whose. It may be our own daemon, so we
+		// neither start a second one nor destroy its registration.
+		return true, false
+	case identityForeign:
+		// Alive and provably not ours: never call it a daemon, never erase it.
+		return false, false
+	default: // identityGone
+		return false, true
 	}
 }
 
