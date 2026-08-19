@@ -601,7 +601,10 @@ func printSources(sources []scanpkg.SourceState) {
 		// with half the picture" this function was written to avoid.
 		note := ""
 		if s.Note != "" {
-			note = " (partial -- " + s.Note + ")"
+			// "cut short", never "partial": SourceState reserves the partial/
+			// UNREADABLE vocabulary for Err, and using one word for both made
+			// a source that was READ look like one that failed.
+			note = " (cut short -- " + s.Note + ")"
 		}
 		switch {
 		case s.Err == "" && note != "":
@@ -609,7 +612,7 @@ func printSources(sources []scanpkg.SourceState) {
 			// one does not make the sweep incomplete-by-failure.
 			fmt.Printf("  %s %d%s\n", pad(s.Name, 30), s.Count, note)
 		case s.Err != "" && s.Count > 0:
-			fmt.Printf("  %s %d (partial -- %s)%s\n", pad(s.Name, 30), s.Count, s.Err, note)
+			fmt.Printf("  %s %d (UNREADABLE in part -- %s)%s\n", pad(s.Name, 30), s.Count, s.Err, note)
 		case s.Err != "":
 			fmt.Printf("  %s UNREADABLE: %s%s\n", pad(s.Name, 30), s.Err, note)
 		default:

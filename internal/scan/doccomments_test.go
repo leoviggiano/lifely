@@ -24,16 +24,6 @@ import (
 func TestDocCommentsBelongToTheirSymbol(t *testing.T) {
 	root := moduleRoot(t)
 
-	// Verbs that open a Go doc comment. A line like "// boardKey returns ..."
-	// above `func uniqueBoardID` is the defect: it documents somebody else.
-	verbs := map[string]bool{}
-	for _, v := range strings.Fields(`is are reports returns names maps reads
-		counts holds lists says takes widens truncates clears drops spots
-		prefers wraps marks builds answers registers mounts sweeps probes
-		signals deletes rejects resolves`) {
-		verbs[v] = true
-	}
-
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
@@ -56,14 +46,27 @@ func TestDocCommentsBelongToTheirSymbol(t *testing.T) {
 			if doc == nil {
 				continue
 			}
+			// Go's own convention is the whole rule: a doc comment OPENS with
+			// the name of what it documents. So a line that opens with a
+			// declared name is the start of a doc block, and if that name is
+			// not this declaration's, the block belongs to somebody else.
+			//
+			// The first version keyed on a hardcoded list of 34 verbs and let
+			// "matches", "decides", "runs", "prints" and "strips" through --
+			// an instrument that measured less than it claimed, which is the
+			// defect it exists to catch, committed inside itself.
 			owners := declaredNames(decl)
-			for _, line := range doc.List {
+			for i, line := range doc.List {
 				text := strings.TrimPrefix(line.Text, "// ")
 				fields := strings.Fields(text)
-				if len(fields) < 2 || !verbs[fields[1]] || !declared[fields[0]] {
+				if len(fields) < 2 || !declared[fields[0]] || contains(owners, fields[0]) {
 					continue
 				}
-				if !contains(owners, fields[0]) {
+				// A block OPENS at the first line, or right after a blank
+				// comment line. Mid-paragraph mentions of another symbol are
+				// ordinary prose and must not fire.
+				opensBlock := i == 0 || strings.TrimSpace(doc.List[i-1].Text) == "//"
+				if opensBlock {
 					t.Errorf("%s: %v carries the doc comment of %q",
 						filepath.Base(path), owners, fields[0])
 				}
