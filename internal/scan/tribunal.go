@@ -596,17 +596,7 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		if _, statErr := os.Stat(filepath.Join(root, ".git")); os.IsNotExist(statErr) {
 			return nil, state
 		}
-		var ee *exec.ExitError
-		stderr := ""
-		if errors.As(err, &ee) {
-			stderr = strings.TrimSpace(string(ee.Stderr))
-		}
-		// Keep git's own words: "exit status 128" alone says nothing about
-		// whether the root is unreadable, or something else entirely.
-		state.Err = err.Error()
-		if stderr != "" {
-			state.Err += ": " + stderr
-		}
+		state.Err = describeExec(err)
 		return nil, state
 	}
 	lines := strings.FieldsFunc(string(out), func(r rune) bool { return r == '\n' })

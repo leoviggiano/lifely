@@ -115,41 +115,36 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 
 	byProject := map[string]int{}
 	detailErrs := map[string]string{}
-	unvisited := map[string]bool{}
-	budgetErr := ""
+	budgetCut := map[string]int{}
 	var decisionItems []pendency.Pendency
 	decisionCount := 0
 	decisionErr := ""
 
-	for i, t := range recent.Tickets {
+	for _, t := range recent.Tickets {
 		if terminalStatus[t.Status] {
 			continue
 		}
+		// The budget buys DETAIL, not the row. Breaking out of the loop here
+		// dropped every remaining ticket from the panel entirely -- the sweep
+		// went quiet about the majority of the vault while reporting only that
+		// they "were not detailed". The listing is already in hand and cost
+		// nothing; only `ject ticket show` is expensive. So past the deadline
+		// we keep emitting rows and stop paying for their detail.
+		var detail ticketDetail
+		var derr error
 		if time.Now().After(deadline) {
-			// Say what was cut, and count only what would have been shown --
-			// recent.Tickets includes the terminal ones this loop skips.
-			// A truncated sweep that stays quiet is the same failure as the
-			// --limit 20 this file already paid for.
-			left := 0
-			for _, rest := range recent.Tickets[i:] {
-				if !terminalStatus[rest.Status] {
-					left++
-					// And the projects we never reached still get a line, so
-					// they do not vanish from the panel along with the budget.
-					unvisited["ject:"+rest.Project] = true
-				}
-			}
-			budgetErr = fmt.Sprintf("sweep stopped at its %s budget; %d open tickets were not detailed", sweepBudget, left)
-			break
+			budgetCut["ject:"+t.Project]++
+			derr = errBudgetSpent
+		} else {
+			detail, derr = showTicket(run, t.ID)
 		}
-		detail, derr := showTicket(run, t.ID)
 		if derr == nil {
 			// Only record a graph edge set we actually read. Storing the zero
 			// value on failure would publish "no dependencies" as a fact, and
 			// the queue computes readiness from this map.
 			graph[t.ID] = detail.Dependencies
 		}
-		if derr != nil {
+		if derr != nil && !errors.Is(derr, errBudgetSpent) {
 			// And it changes the ANSWER, not just the log: a ticket whose
 			// detail we could not read has unknown dependencies, and the queue
 			// must not offer it as ready on the strength of a failed read.
@@ -188,37 +183,35 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	items = append(items, decisionItems...)
 	// Deterministic order: Go randomises map iteration, and a panel whose
 	// source list reshuffles on every sweep reads as if something changed.
-	names := make([]string, 0, len(byProject)+len(unvisited))
+	names := make([]string, 0, len(byProject))
 	for name := range byProject {
 		names = append(names, name)
-	}
-	for name := range unvisited {
-		if _, seen := byProject[name]; !seen {
-			names = append(names, name)
-		}
 	}
 	sort.Strings(names)
 	for _, name := range names {
 		st := SourceState{Name: name, Count: byProject[name], Err: detailErrs[name]}
-		if budgetErr != "" {
+		// Only the projects actually cut carry the note, with their own count:
+		// a project swept in full was being labelled "partial" and handed a
+		// number of tickets belonging to someone else.
+		if cut := budgetCut[name]; cut > 0 {
 			if st.Err != "" {
 				st.Err += "; "
 			}
-			st.Err += budgetErr
+			st.Err += fmt.Sprintf("sweep stopped at its %s budget; %d of its open tickets are listed without detail", sweepBudget, cut)
 		}
 		states = append(states, st)
 	}
-	if decisionCount > 0 || decisionErr != "" || budgetErr != "" {
+	if decisionCount > 0 || decisionErr != "" || len(budgetCut) > 0 {
 		// The budget cut applies here too: tickets we never opened may hold
 		// decisions waiting on the founder, so this source under-reports for
 		// the same reason the ject ones do -- and it is the one source where
 		// silence is least affordable.
 		err := decisionErr
-		if budgetErr != "" {
+		if cut := len(budgetCut); cut > 0 {
 			if err != "" {
 				err += "; "
 			}
-			err += budgetErr
+			err += fmt.Sprintf("the sweep budget was spent; tickets listed without detail in %d project(s) were not read for decisions", cut)
 		}
 		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: err})
 	}
@@ -319,6 +312,8 @@ func describeExec(err error) string {
 // This is the one source read as a file rather than through a command: no ject
 // command returns decisoes.md yet. If one appears, this should use it -- the
 // exception is declared in the spec, not smuggled in here.
+var errBudgetSpent = errors.New("detail not read: the sweep budget was spent")
+
 func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency.Pendency, string) {
 	if dir == "" {
 		if !detailRead {
@@ -360,7 +355,7 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 				// decision surface, and summarising them would decide for him.
 				Detail:  strings.TrimSpace(strings.Join(body, "\n")),
 				Blocks:  pendency.Founder,
-				Origin:  pendency.Origin{Path: path, Locator: id, Open: "obsidian://open?path=" + path},
+				Origin:  pendency.Origin{Path: path, Locator: id, Open: obsidianURI(path)},
 				Surface: "the founder\u0027s word, in the block\u0027s Decision field",
 				SeenAt:  now,
 			})

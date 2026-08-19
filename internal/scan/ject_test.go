@@ -320,10 +320,13 @@ func TestGraphOmitsTicketsWhoseDetailFailed(t *testing.T) {
 	}
 }
 
-// When the sweep runs out of budget, the projects it never reached still get a
-// line -- otherwise they vanish from the panel exactly when it is least able
-// to explain why. Same failure as the --limit 20, one layer up.
-func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
+// When the sweep runs out of budget the tickets stay ON THE PANEL -- only
+// their detail is missing. The first version of this test asserted that the
+// project LINES survived and never looked at the rows, so it stayed green
+// while the sweep silently dropped ~85 of 90 open tickets: the budget check
+// broke out of the loop before the row was appended. The budget buys detail,
+// never the ticket's existence.
+func TestBudgetExhaustionKeepsTicketsListed(t *testing.T) {
 	original := sweepBudget
 	sweepBudget = time.Nanosecond // exhausted before the first ticket
 	t.Cleanup(func() { sweepBudget = original })
@@ -334,10 +337,21 @@ func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
 				{"id":"a-1","project":"alfa","title":"t","status":"ready"},
 				{"id":"b-1","project":"beta","title":"t","status":"ready"}]}`), nil
 		}
+		t.Error("the sweep paid for a ticket detail after its budget was spent")
 		return []byte(`{"id":"a-1","dependencies":[]}`), nil
 	}
 
-	_, states, _ := Ject(run, time.Now())
+	items, states, _ := Ject(run, time.Now())
+
+	listed := map[string]bool{}
+	for _, it := range items {
+		listed[it.Title] = true
+	}
+	for _, want := range []string{"a-1 — t", "b-1 — t"} {
+		if !listed[want] {
+			t.Errorf("%q vanished from the panel when the budget ran out", want)
+		}
+	}
 
 	seen := map[string]string{}
 	for _, s := range states {
@@ -351,6 +365,51 @@ func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
 		}
 		if !strings.Contains(msg, "budget") {
 			t.Errorf("%s was listed without saying the sweep was cut: %q", want, msg)
+		}
+	}
+}
+
+// A project swept in FULL must not be labelled partial, and must never be
+// handed a count of tickets belonging to another project. The budget note is
+// per project, because "partial" is a claim about that project's rows.
+func TestBudgetNoteOnlyMarksTheProjectsActuallyCut(t *testing.T) {
+	original := sweepBudget
+	sweepBudget = 50 * time.Millisecond
+	t.Cleanup(func() { sweepBudget = original })
+
+	calls := 0
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			return []byte(`{"tickets":[
+				{"id":"a-1","project":"alfa","title":"t","status":"ready"},
+				{"id":"b-1","project":"beta","title":"t","status":"ready"},
+				{"id":"b-2","project":"beta","title":"t","status":"ready"}]}`), nil
+		}
+		calls++
+		if calls == 1 {
+			// alfa is complete, and this detail costs more than the whole
+			// budget -- so the cut lands exactly on beta's first ticket.
+			// The deadline is fixed when the sweep starts, so it has to be
+			// real time that passes here, not a rewritten sweepBudget.
+			time.Sleep(80 * time.Millisecond)
+			return []byte(`{"id":"a-1","dependencies":[]}`), nil
+		}
+		t.Error("the sweep paid for a ticket detail after its budget was spent")
+		return nil, nil
+	}
+
+	_, states, _ := Ject(run, time.Now())
+
+	for _, s := range states {
+		switch s.Name {
+		case "ject:alfa":
+			if s.Err != "" {
+				t.Errorf("alfa was swept in full but reads as partial: %q", s.Err)
+			}
+		case "ject:beta":
+			if !strings.Contains(s.Err, "2 of its open tickets") {
+				t.Errorf("beta must own its own cut count, got %q", s.Err)
+			}
 		}
 	}
 }
