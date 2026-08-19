@@ -179,6 +179,54 @@ const (
 `,
 	},
 	{
+		// Transcribed from internal/pendency/pendency.go: every field comment
+		// opens with the name of its own field.
+		name: "struct fields documented correctly",
+		src: `package fixture
+
+// Origin points back at where the pendency was read from.
+type Origin struct {
+	// Path is the file the item came from.
+	Path string
+	// Locator narrows it down inside the file.
+	Locator string
+	// Open is the command or URL that opens the source.
+	Open string
+}
+`,
+	},
+	{
+		name: "interface methods documented correctly",
+		src: `package fixture
+
+// Store keeps items.
+type Store interface {
+	// List returns every item.
+	List() []string
+	// Get returns one item by id.
+	Get(id string) string
+}
+`,
+	},
+	{
+		// An embedded field declares no name of its own, so its comment has no
+		// owner and is dropped -- without that rule the first word "Base",
+		// declared at top level, would belong to somebody else and this
+		// correct, ordinary comment would fail the build.
+		name: "comment on an embedded field owns no name",
+		src: `package fixture
+
+// Base is the common part.
+type Base struct{}
+
+// Wrapper wraps Base.
+type Wrapper struct {
+	// Base carries the common part.
+	Base
+}
+`,
+	},
+	{
 		// The comment on a driver import names the type that needs the driver,
 		// which is the whole point of writing it. No import spec is an owner.
 		name: "comment on a blank import spec",
@@ -322,6 +370,40 @@ type (
 		says: `"Alpha"`,
 	},
 	{
+		// The ticket's live surface, transcribed from
+		// internal/pendency/pendency.go: a field inserted between a comment
+		// and the struct field it documents. It compiled, read wrong, and
+		// passed the lint -- exit 0 measured against the doclint of c34a9e6.
+		name: "field inserted inside a struct",
+		src: `package fixture
+
+// Origin points back at where the pendency was read from.
+type Origin struct {
+	// Path is the file the item came from.
+	Kind string
+	Path string
+	// Locator narrows it down inside the file.
+	Locator string
+}
+`,
+		want: 1,
+		says: `"Path"`,
+	},
+	{
+		name: "method inserted inside an interface",
+		src: `package fixture
+
+// Store keeps items.
+type Store interface {
+	// Get returns one item by id.
+	List() []string
+	Get(id string) string
+}
+`,
+		want: 1,
+		says: `"Get"`,
+	},
+	{
 		// The style of internal/runtime/live.go:33 and :231. With the colon
 		// attached, the first token matched nothing and every comment in those
 		// blocks read as correct -- coverage that never fires.
@@ -406,6 +488,29 @@ const (
 	}
 	if got := stderr.String(); !strings.Contains(got, "1 doc comment(s) on the wrong symbol") {
 		t.Fatalf("stderr does not report the count: %q", got)
+	}
+}
+
+// TestRunExitsOneOnInsertedStructField is lifely-030's acceptance criterion in
+// the form commands.lint consumes it: a field slipped between a comment and
+// the struct field it documents must make the program exit 1, naming the
+// field the comment really belongs to.
+func TestRunExitsOneOnInsertedStructField(t *testing.T) {
+	dir := writeFixture(t, `package fixture
+
+// Origin points back at where the pendency was read from.
+type Origin struct {
+	// Path is the file the item came from.
+	Kind string
+	Path string
+}
+`)
+	var stderr bytes.Buffer
+	if code := run([]string{dir}, &stderr); code != 1 {
+		t.Fatalf("want exit code 1, got %d (stderr: %s)", code, stderr.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, `"Path"`) {
+		t.Fatalf("stderr does not name the displaced field: %q", got)
 	}
 }
 
