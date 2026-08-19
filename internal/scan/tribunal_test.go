@@ -122,9 +122,15 @@ func TestUnreadableSourceIsReportedNotFatal(t *testing.T) {
 		t.Skip("running as root: permission bits do not block reads")
 	}
 	root := house(t)
-	if err := os.Remove(filepath.Join(root, "FOUNDER.md")); err != nil {
+	// UNREADABLE, not absent. This test removed the file and still checked for
+	// a finding -- asserting the opposite of the contract above it, and of the
+	// absence-vs-failure rule the rest of this scanner is built on. The
+	// root-skip guard at the top was the tell: it only means anything for a
+	// permission scenario, which is what the name always promised.
+	if err := os.Chmod(filepath.Join(root, "FOUNDER.md"), 0o000); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "FOUNDER.md"), 0o644) })
 	res := Tribunal(root)
 
 	var reported bool
@@ -138,6 +144,21 @@ func TestUnreadableSourceIsReportedNotFatal(t *testing.T) {
 	}
 	if len(find(res.Pendencies, "A2")) == 0 {
 		t.Error("one broken source silenced the others")
+	}
+}
+
+// A source that simply is not there is NOT a finding: absence is normal, and
+// marking it teaches the reader to ignore the one marker that should always
+// mean something.
+func TestAbsentSourceIsNotAFinding(t *testing.T) {
+	root := house(t)
+	if err := os.Remove(filepath.Join(root, "FOUNDER.md")); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range Tribunal(root).Sources {
+		if s.Name == "FOUNDER.md" && s.Err != "" {
+			t.Errorf("an absent FOUNDER.md was reported as unreadable: %q", s.Err)
+		}
 	}
 }
 

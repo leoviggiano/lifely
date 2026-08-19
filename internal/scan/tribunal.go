@@ -72,7 +72,12 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 
 	f, err := os.Open(path)
 	if err != nil {
-		state.Err = err.Error()
+		// A source that EXISTS and cannot be read is a finding; one that is
+		// simply not there is normal absence, and marking it unreadable
+		// trains the reader to ignore the marker (SourceState's own contract).
+		if !os.IsNotExist(err) {
+			state.Err = err.Error()
+		}
 		return nil, state
 	}
 	defer f.Close()
@@ -119,10 +124,13 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				// below an insertion and orphans those conversations. And the
 				// title goes in whole, because truncating for display and then
 				// keying on the truncation collapsed two long items into one.
-				ID:      pendency.NewID("founder", boardID(faixa, title, seen)),
-				Class:   "A1",
-				Source:  "FOUNDER.md",
-				Title:   strings.TrimSpace(title),
+				ID:     pendency.NewID("founder", boardID(faixa, title, seen)),
+				Class:  "A1",
+				Source: "FOUNDER.md",
+				// Display only. The id above keys on the RAW line: stripping
+				// emphasis here must never move an item's identity, and a
+				// board where somebody bolds a word would do exactly that.
+				Title:   plainText(title),
 				Detail:  title,
 				Blocks:  faixaBlocker(faixa),
 				Origin:  pendency.Origin{Path: path, Locator: "Faixa " + faixa, Open: obsidianURI(path)},
@@ -222,7 +230,11 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	state := SourceState{Name: "ledgers *.tsv", Path: root}
 	var items []pendency.Pendency
 
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	// The return is discarded on purpose: WalkDir only ever returns what the
+	// callback returned, and this callback records every failure into
+	// state.Err and returns nil. A branch here would be unreachable, and if it
+	// ever ran it would clobber the per-file messages with one generic line.
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			// A directory we cannot walk is a finding, not a shrug: this is
 			// the only sweep that discovers files, so nothing else would ever
@@ -261,18 +273,18 @@ func ledgers(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		}
 		return nil
 	})
-	if err != nil {
-		// WalkDir only returns what the callback returns, and the callback
-		// never returns an error -- it records and continues. Keeping a
-		// branch here would clobber the per-file messages accumulated above
-		// with a single generic one.
-		if state.Err != "" {
-			state.Err += "; "
-		}
-		state.Err += err.Error()
-	}
 	state.Count = len(items)
 	return items, state
+}
+
+// plainText drops the markdown emphasis a board uses for weight, so the panel
+// shows the sentence instead of its source (`**Construir o lifely**`). It is
+// deliberately blunt -- the panel renders text, not markdown.
+func plainText(s string) string {
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "__", "")
+	s = strings.ReplaceAll(s, "`", "")
+	return strings.TrimSpace(s)
 }
 
 func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
@@ -310,10 +322,11 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 		// A row whose status is empty or missing is NOT decided. Treating it
 		// as terminal would hide a decision that is still waiting -- the exact
 		// failure this scanner's terminal-by-exclusion rule exists to avoid.
-		if statusAt < len(cells) && terminal[strings.ToLower(strings.TrimSpace(cells[statusAt]))] {
-			continue
-		}
 		key := naturalKey(header, cells, rel+":"+strconv.Itoa(row))
+		// Registered BEFORE the terminal filter, deliberately: skipping the
+		// decided rows here would make a row's id depend on whether a SIBLING
+		// is decided -- and naturalKey drops the status column precisely so
+		// that deciding a row never remints anybody's identity.
 		// Dropping date cells buys stability and can cost UNIQUENESS: two rows
 		// that differ only in a date slug to the same key, and the second one
 		// would silently take the first one's identity -- a decision that
@@ -324,6 +337,9 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 			key = pendency.LocationKey(key, strconv.Itoa(row))
 		}
 		seen[key] = true
+		if statusAt < len(cells) && terminal[strings.ToLower(strings.TrimSpace(cells[statusAt]))] {
+			continue
+		}
 		items = append(items, pendency.Pendency{
 			ID:      pendency.NewID(pendency.Slug(rel), key),
 			Class:   "A2",
@@ -449,7 +465,7 @@ func surfaceFor(rel string) string {
 
 func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	dir := filepath.Join(root, "sessions")
-	state := SourceState{Name: "sessions/<data>/summary.md", Path: dir}
+	state := SourceState{Name: "sessions/<date>/summary.md", Path: dir}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -660,7 +676,12 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 
 	f, err := os.Open(path)
 	if err != nil {
-		state.Err = err.Error()
+		// A source that EXISTS and cannot be read is a finding; one that is
+		// simply not there is normal absence, and marking it unreadable
+		// trains the reader to ignore the marker (SourceState's own contract).
+		if !os.IsNotExist(err) {
+			state.Err = err.Error()
+		}
 		return nil, state
 	}
 	defer f.Close()

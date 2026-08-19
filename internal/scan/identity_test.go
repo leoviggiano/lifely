@@ -168,6 +168,36 @@ func TestLedgerRowsDifferingOnlyByDateDoNotCollide(t *testing.T) {
 	}
 }
 
+// The panel renders text, not markdown -- and the id must NOT move when a
+// board author bolds a word, so the title is cleaned for display while the
+// identity keeps keying on the raw line.
+func TestBoardTitleIsPlainTextButIdentityIsNot(t *testing.T) {
+	root := t.TempDir()
+	board := "## Faixa 1\n\n- [ ] **Construir o lifely** -- aprovado\n"
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(board), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 1 {
+		t.Fatalf("got %d items, want 1", len(got))
+	}
+	if strings.Contains(got[0].Title, "**") {
+		t.Errorf("the panel shows raw markdown: %q", got[0].Title)
+	}
+	if !strings.Contains(got[0].Title, "Construir o lifely") {
+		t.Errorf("stripping emphasis ate the sentence: %q", got[0].Title)
+	}
+
+	plain := "## Faixa 1\n\n- [ ] Construir o lifely -- aprovado\n"
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(plain), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unbolded := find(Tribunal(root).Pendencies, "A1")
+	if len(unbolded) == 1 && unbolded[0].ID == got[0].ID {
+		t.Error("identity followed the DISPLAY text: unbolding a line would keep its id, which means bolding one silently moves it")
+	}
+}
+
 // Removing the positional counter from the A1 identity was right; removing the
 // LANE with it was not. The same title under two faixas is two different
 // items — one waits on the founder, the other on an agent.
