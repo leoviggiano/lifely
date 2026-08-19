@@ -91,11 +91,12 @@ do portão são os **dois** comandos acima: `go vet` mais o `doclint`, que recus
 comentário de doc que ficou no símbolo errado — inserir uma função entre o
 comentário e sua declaração, ou um membro entre o comentário e a constante que
 ele documenta dentro de um `const(...)`, não quebra compilação nem teste. O
-`doclint` cobre toda forma de declaração: func, type, var e const soltos, e
-cada spec dentro de `const(...)`/`var(...)`/`type(...)`. Import fica de fora de
+`doclint` cobre toda declaração de topo: func, type, var e const soltos, e cada
+spec dentro de `const(...)`/`var(...)`/`type(...)`. Import fica de fora de
 propósito: um comentário só é acusado quando a declaração que o carrega
 declara algum nome, e import não declara nome que o lint indexe. O
-`cmd/doclint` diz por que isso é lint, e não suíte.
+`cmd/doclint` diz por que isso é lint, e não suíte, e o que fica fora do
+alcance.
 
 ## Onde mora a verdade
 
