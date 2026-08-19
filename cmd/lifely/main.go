@@ -193,7 +193,11 @@ func serve(args []string) error {
 					// not open is not a way out.
 					return fmt.Errorf("a marker for pid %d is in the way and it is not a lifely daemon; clear it with `lifely stop --force --owner manual`", stale.PID)
 				}
-				return fmt.Errorf("another lifely came up and left while I was registering; try again")
+				// Peek failed too, so the marker is unreadable rather than
+				// merely foreign. Still not a "try again": the file is not
+				// going anywhere on its own, and the caller needs the way out
+				// rather than an invitation to loop.
+				return fmt.Errorf("a marker is in the way and cannot be read; clear it with `lifely stop --force --owner manual`")
 			}
 			return announceReuse(live, who, fs, *port)
 		}
@@ -355,11 +359,12 @@ func stop(args []string) error {
 		// make `stop` fail forever, and the file it trips on is ours to clear.
 		runtime.Running()
 		if _, still := runtime.Peek(); runtime.IsCorrupt(still) {
-			// Say what is true: the healing may fail (permissions, a racing
-			// writer), and claiming "descartado" would send the caller away
-			// believing a file that is still there is gone.
-			fmt.Println("the marker is unreadable and I could not clear it; lifely is not running")
-			return nil
+			// "lifely is not running" is a claim about a state we just failed
+			// to read, and exit 0 hands that claim to a script as fact. The
+			// sibling branch below says the rule out loud -- a marker we could
+			// not read is not the same as no marker -- and this branch broke
+			// it while sitting three lines above it.
+			return fmt.Errorf("the marker is unreadable and I could not clear it; whether a daemon is running is unknown -- `lifely stop --force --owner manual` clears it")
 		}
 		fmt.Println("the unreadable marker was cleared; lifely is not running")
 		return nil
