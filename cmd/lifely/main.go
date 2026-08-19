@@ -83,7 +83,7 @@ Usage:
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", defaultPort, "port to listen on")
-	owner := fs.String("owner", string(runtime.OwnerManual), "who started this daemon: tribunal or manual")
+	owner := fs.String("owner", "", "who started this daemon: manual (yours) or tribunal (the session) -- required")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -92,6 +92,13 @@ func serve(args []string) error {
 		return &flagParseError{err}
 	}
 
+	// The README and usage() both call --owner mandatory here; the default
+	// quietly made it optional, so a bare `lifely serve` registered as manual
+	// and the tribunal's own close would then refuse to clean up after it.
+	// Same reasoning as stop: never guess who is asking.
+	if *owner == "" {
+		return errors.New("say who is starting this daemon: --owner manual (you) or --owner tribunal (the session)")
+	}
 	who, err := parseOwner(*owner)
 	if err != nil {
 		return err
@@ -130,6 +137,16 @@ func serve(args []string) error {
 		return fmt.Errorf("listening on 127.0.0.1:%d: %w", *port, err)
 	}
 	bound := listener.Addr().(*net.TCPAddr).Port
+
+	// Arm the signal handler BEFORE the marker is published. Claim makes this
+	// pid visible to `lifely stop`, and a SIGTERM arriving before Notify is
+	// installed kills the process with the default disposition -- no drain, no
+	// deregistration, and the marker it just wrote survives as an orphan.
+	//
+	// Named `signals`, not `stop`: `stop` is the command function, and
+	// shadowing it here makes the two impossible to tell apart at a glance.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 
 	// Every path below that returns without serving must give the port back:
 	// the reuse announcement told the caller to use the daemon that IS up, and
@@ -193,10 +210,6 @@ func serve(args []string) error {
 
 	fmt.Printf("lifely serving at http://127.0.0.1:%d (owner: %s)\n", bound, who)
 
-	// Named `signals`, not `stop`: `stop` is the command function, and
-	// shadowing it here makes the two impossible to tell apart at a glance.
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	select {
 	case err := <-errs:
 		return err
@@ -460,7 +473,12 @@ func scanCmd(args []string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	root := fs.String("root", defaultRoot(), "the record repository to sweep")
 	if err := fs.Parse(args); err != nil {
-		return err
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		// Wrapped like serve and stop: the third caller of the same pattern,
+		// swept here because a defect in two places is a defect in three.
+		return &flagParseError{err}
 	}
 
 	res, _ := scanpkg.All(*root, scanpkg.CLI)

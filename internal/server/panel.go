@@ -29,7 +29,10 @@ type Panel struct {
 	inflight *sweepFlight
 	cached   *snapshot
 	cachedAt time.Time
-	now      func() time.Time
+	// generation counts source changes. A sweep that starts in one generation
+	// and finishes in another read a world that no longer exists.
+	generation uint64
+	now        func() time.Time
 }
 
 type snapshot struct {
@@ -63,13 +66,21 @@ func (p *Panel) sweep() *snapshot {
 	}
 	flight := &sweepFlight{done: make(chan struct{})}
 	p.inflight = flight
+	// The generation this sweep started in. scan.All can run for seconds, and
+	// an Invalidate during that window means a source CHANGED after we began
+	// reading -- so this result is already stale before it exists and must not
+	// become the cache. The callers waiting on this flight still get it (it is
+	// the freshest thing that exists), but the next request sweeps again.
+	startedAt := p.generation
 	p.mu.Unlock()
 
 	res, graph := scan.All(p.Root, p.Run)
 	flight.snap = &snapshot{Result: res, Graph: graph}
 
 	p.mu.Lock()
-	p.cached, p.cachedAt = flight.snap, p.now()
+	if p.generation == startedAt {
+		p.cached, p.cachedAt = flight.snap, p.now()
+	}
 	p.inflight = nil
 	p.mu.Unlock()
 
@@ -90,6 +101,11 @@ func (p *Panel) Invalidate() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cached = nil
+	// Bumping the generation is what reaches a sweep already in flight:
+	// clearing p.cached alone left the older, pre-change snapshot free to
+	// overwrite it when that sweep returned, serving stale data for a full TTL
+	// after the very change that called Invalidate.
+	p.generation++
 }
 
 type pendencyJSON struct {
@@ -247,4 +263,13 @@ func (p *Panel) projects(c fuego.ContextNoBody) (projectsResponse, error) {
 		out = append(out, *byslug[slug])
 	}
 	return projectsResponse{Projects: out, Graph: snap.Graph}, nil
+}
+
+// inflightForTest reports the sweep in progress, if any. Exported to the test
+// only: the race it pins is between a sweep and an Invalidate, and there is no
+// way to hit that window without knowing when the sweep has actually started.
+func (p *Panel) inflightForTest() *sweepFlight {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.inflight
 }

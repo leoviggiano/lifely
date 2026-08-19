@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -219,5 +220,40 @@ func TestConcurrentSweepsShareOneScan(t *testing.T) {
 		if r != results[0] {
 			t.Errorf("caller %d got a different snapshot than caller 0", i)
 		}
+	}
+}
+
+// A source that changes WHILE a sweep is running must not be described by that
+// sweep's result. Clearing the cache alone did not reach a sweep already in
+// flight: it returned and overwrote the cleared cache with pre-change data,
+// which then served for a full TTL after the change that called Invalidate.
+func TestInvalidateDuringASweepDoesNotCacheTheStaleResult(t *testing.T) {
+	p := fixture(t)
+	release := make(chan struct{})
+	swept := 0
+	p.Run = func(args ...string) ([]byte, error) {
+		swept++
+		if swept == 1 {
+			<-release // hold the first sweep open
+		}
+		return []byte(`{"tickets":[]}`), nil
+	}
+
+	done := make(chan struct{})
+	go func() { p.sweep(); close(done) }()
+
+	// Let the first sweep get inside scan.All, then change the world.
+	for p.inflightForTest() == nil {
+		runtime.Gosched()
+	}
+	p.Invalidate()
+	close(release)
+	<-done
+
+	// The next read must sweep again rather than serve what the first one saw.
+	before := swept
+	p.sweep()
+	if swept == before {
+		t.Error("the stale in-flight result became the cache: a change during a sweep is invisible for a whole TTL")
 	}
 }
