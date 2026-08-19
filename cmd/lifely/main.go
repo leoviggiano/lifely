@@ -278,7 +278,7 @@ func stop(args []string) error {
 			fmt.Println("the marker is unreadable and I could not clear it; lifely is not running")
 			return nil
 		}
-		fmt.Println("marcador ilegivel foi descartado; lifely is not running")
+		fmt.Println("the unreadable marker was cleared; lifely is not running")
 		return nil
 	case err != nil:
 		// A marker we could not read is not the same as no marker: saying
@@ -312,7 +312,8 @@ func stop(args []string) error {
 		}
 		switch {
 		case *force && live.MayStop(asker):
-			if ferr := live.ForceStop(asker); ferr != nil {
+			ferr := live.ForceStop(asker)
+			if ferr != nil && !errors.Is(ferr, runtime.ErrChanged) {
 				return ferr
 			}
 			// The two cases do different things and the caller has to know

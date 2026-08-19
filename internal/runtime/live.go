@@ -88,7 +88,11 @@ func processName(pid int) (string, bool) {
 	// Linux exposes the real path, with no truncation.
 	if runtime.GOOS == "linux" {
 		if target, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe"); err == nil {
-			return filepath.Base(target), true
+			// The kernel appends " (deleted)" when the binary was replaced
+			// under a running process -- which is exactly what happens after
+			// an upgrade, so the check would fail precisely when a daemon is
+			// oldest and most likely to be stale.
+			return strings.TrimSuffix(filepath.Base(target), " (deleted)"), true
 		}
 	}
 	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=").Output()
@@ -222,7 +226,16 @@ func (m Marker) ForceStop(asker Owner) error {
 	// the exact bug this package spends four functions preventing -- so the
 	// force path only clears the stale marker and leaves the stranger alone.
 	if m.probe() == identityForeign {
-		return removeIfUnchanged(m)
+		if err := removeIfUnchanged(m); err != nil {
+			return err
+		}
+		// removeIfUnchanged returns nil both when it removed the marker and
+		// when it found a different one and left it alone. Say which happened,
+		// so the caller is not told "cleared" about a file still on disk.
+		if _, err := Read(); err == nil {
+			return ErrChanged
+		}
+		return nil
 	}
 	proc, err := os.FindProcess(m.PID)
 	if err != nil {
