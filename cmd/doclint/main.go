@@ -11,9 +11,11 @@
 // that stops running. `go run ./cmd/doclint .` needs exactly what the build
 // already needs.
 //
-// The class it kills: inserting a function between a doc comment and its
-// declaration. Invisible to the compiler, to every test, and to a quick read
-// -- five instances in one night, two from a merge and three from my own
+// The class it kills: anything slipped between a doc comment and what it
+// documents -- a function above a declaration, or a member above the constant
+// it names inside a const(...)/var(...)/type(...) block (docUnits says how
+// both are reached). Invisible to the compiler, to every test, and to a quick
+// read -- five instances in one night, two from a merge and three from my own
 // edits.
 package main
 
