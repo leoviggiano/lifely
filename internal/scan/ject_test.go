@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -343,6 +344,21 @@ func TestDescribeExecNamesTheToolThatFailed(t *testing.T) {
 	}
 	if got := describeExec("git", err); strings.Contains(got, "ject") {
 		t.Errorf("describeExec(\"git\", ...) = %q: it blames ject for git", got)
+	}
+}
+
+// A wrapped exec.Error still means the binary is not on PATH. The missing-
+// binary branch was a raw type assertion while errors.As sat three lines
+// below it for the exit case -- so a runner that wraps its errors lost the
+// one message that says which tool to install. (defect D8)
+func TestDescribeExecSeesThroughWrappedErrors(t *testing.T) {
+	_, err := exec.Command("definitely-not-a-real-binary-xyz").Output()
+	if err == nil {
+		t.Skip("the impossible binary exists here")
+	}
+	wrapped := fmt.Errorf("running the sweep: %w", err)
+	if got := describeExec("ject", wrapped); !strings.Contains(got, "this source is unavailable") {
+		t.Errorf("describeExec on a wrapped error lost the PATH message: %q", got)
 	}
 }
 

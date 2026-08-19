@@ -308,7 +308,11 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unkn
 // Deduplicating two things that are only ALMOST the same moves the difference
 // into a parameter -- it does not delete it.
 func describeExec(tool string, err error) string {
-	if _, ok := err.(*exec.Error); ok {
+	// errors.As, like the exit branch below: a raw type assertion here meant
+	// a runner that wraps its errors lost the one message that says which
+	// tool to install.
+	var missing *exec.Error
+	if errors.As(err, &missing) {
 		return tool + " is not on PATH -- this source is unavailable"
 	}
 	// Keep what the binary said. Output() puts stderr in ExitError.Stderr and
