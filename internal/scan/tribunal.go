@@ -79,6 +79,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 
 	var items []pendency.Pendency
 	var faixa string
+	seen := 0
 	var current *pendency.Pendency
 
 	flush := func() {
@@ -104,6 +105,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 			// open work, and dropping it hides the very detail that a board
 			// uses indentation to express.
 			flush()
+			seen++
 			title := strings.TrimPrefix(strings.TrimLeft(line, " \t"), "- [ ] ")
 			p := pendency.Pendency{
 				// Identity = lane + WHOLE title.
@@ -117,7 +119,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				// below an insertion and orphans those conversations. And the
 				// title goes in whole, because truncating for display and then
 				// keying on the truncation collapsed two long items into one.
-				ID:      pendency.NewID("founder", "f"+faixa+"-"+pendency.Slug(boardKey(title))),
+				ID:      pendency.NewID("founder", boardID(faixa, title, seen)),
 				Class:   "A1",
 				Source:  "FOUNDER.md",
 				Title:   strings.TrimSpace(title),
@@ -162,13 +164,6 @@ func faixaBlocker(faixa string) pendency.Blocker {
 
 // boardKey returns the part of a board line that names the item.
 //
-// The board's convention is `**Título** — nota que envelhece`. Keying on the
-// whole line made every note edit mint a new id; keying on a truncation made
-// two long items collapse. The bold title is the source's own answer to "what
-// is this item called", so it is the key -- and when there is no bold title,
-// the whole line is, because then nothing shorter is safe.
-// boardKey returns the part of a board line that names the item.
-//
 // Same rule the ledger identity follows, stated once for both: key on what the
 // SOURCE says names the item, and accept a collision where the source itself
 // is ambiguous. The board's convention is `**Título** — nota`, so the bold
@@ -179,6 +174,16 @@ func faixaBlocker(faixa string) pendency.Blocker {
 // become one pendency. That is the source calling two things by one name --
 // visible to a human reading the board too -- and inventing a distinction here
 // would hide it.
+// boardID builds the A1 identity, falling back to position when the title
+// slugs to nothing: a line made only of punctuation or emoji would otherwise
+// key on the empty string and collapse with every other such line.
+func boardID(faixa, title string, ordinal int) string {
+	if slug := pendency.Slug(boardKey(title)); slug != "" {
+		return "f" + faixa + "-" + slug
+	}
+	return "f" + faixa + "-" + pendency.LocationKey("board-line", strconv.Itoa(ordinal))
+}
+
 func boardKey(line string) string {
 	// Only the bold that OPENS the item counts. Taking any bold run in the
 	// line would key `- [ ] fazer X — **urgente** hoje` on "urgente", and two
@@ -387,16 +392,7 @@ func naturalKey(header, cells []string, ordinal string) string {
 // looksLikeDate spots a timestamp cell, which must never carry identity: it
 // changes every time the row is touched.
 func looksLikeDate(v string) bool {
-	if len(v) < 8 {
-		return false
-	}
-	digits := 0
-	for _, r := range v {
-		if r >= '0' && r <= '9' {
-			digits++
-		}
-	}
-	return digits >= 6
+	return dateShaped.MatchString(strings.TrimSpace(v))
 }
 
 func namingCell(header, cells []string) string {
@@ -624,6 +620,12 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 }
 
 // --- A6: open markers in life.md -------------------------------------------
+
+// dateShaped matches the date formats these ledgers actually use. Counting
+// digits instead ("8+ chars, 6+ digits") swallowed money (`R$ 1.234.567`),
+// phone numbers and ids like `PROJ-123456` -- all of them stable values that
+// belong in an identity, discarded as if they aged.
+var dateShaped = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}([T ]|$)|^\d{2}/\d{2}/\d{4}$|^\d{2}-\d{2}-\d{4}$`)
 
 // sessionDate matches the YYYY-MM-DD directories under sessions/.
 // Anchored at BOTH ends: unanchored, "2026-08-18-rascunho" also matches and

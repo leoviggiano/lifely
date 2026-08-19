@@ -312,3 +312,38 @@ func TestBoardKeyUsesTheOpeningBoldOnly(t *testing.T) {
 		t.Errorf("two different items keyed on the same inline bold: %q", got[0].ID)
 	}
 }
+
+// Counting digits is not recognising a date. Money, phone numbers and ids like
+// `PROJ-123456` are stable values that belong in an identity; the old
+// heuristic ("8+ chars, 6+ digits") threw them away as if they aged.
+func TestLooksLikeDateOnlyMatchesDates(t *testing.T) {
+	dates := []string{"2026-08-18", "2026-08-18T21:30:00Z", "18/08/2026", "18-08-2026"}
+	for _, v := range dates {
+		if !looksLikeDate(v) {
+			t.Errorf("looksLikeDate(%q) = false, want true", v)
+		}
+	}
+	notDates := []string{"R$ 1.234.567", "PROJ-123456", "+55 11 91234-5678", "0.0.1-bootstrap"}
+	for _, v := range notDates {
+		if looksLikeDate(v) {
+			t.Errorf("looksLikeDate(%q) = true -- a stable value was discarded as a timestamp", v)
+		}
+	}
+}
+
+// A title that slugs to nothing must not key on the empty string: every such
+// line would collapse into one pendency.
+func TestBoardItemsThatSlugToNothingDoNotCollide(t *testing.T) {
+	root := t.TempDir()
+	body := "## Faixa 1\n\n- [ ] ***\n- [ ] ###\n"
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 2 {
+		t.Fatalf("got %d items, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("two unnameable items share the id %q", got[0].ID)
+	}
+}
