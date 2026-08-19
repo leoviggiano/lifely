@@ -15,8 +15,21 @@ verdade vive nos arquivos do tribunal, no ject e no store do Claude.
 
 ```sh
 go build ./cmd/lifely
-./lifely serve            # http://127.0.0.1:7777
+./lifely serve --owner manual   # http://127.0.0.1:7777
+./lifely status                 # diz se o painel está de pé, e onde
+./lifely stop --owner manual    # pede o fecho do painel
 ```
+
+`--owner` é **obrigatório** em `serve` e `stop` — o binário não adivinha quem
+está pedindo. Um TTY não prova que há uma pessoa digitando (cron, CI e um hook
+do tribunal também têm um), e é essa resposta que decide se o fecho da sessão
+do tribunal pode derrubar um painel que você subiu à mão: `tribunal` só derruba
+o que é `tribunal`.
+
+**Códigos de saída**: `0` fez · `1` falhou · **`3` recusou deliberadamente** —
+o painel continua de pé e o motivo já foi impresso. Um script que fecha o
+tribunal precisa dos três separados: "parei", "quebrei" e "não era meu para
+parar" são decisões diferentes.
 
 O servidor escuta **só em loopback** e recusa requisição cujo `Host` não seja
 um nome de loopback: uma página de outro site não alcança a porta pelo

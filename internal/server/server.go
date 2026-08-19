@@ -12,7 +12,10 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"strings"
+
+	"github.com/leoviggiano/lifely/internal/runtime"
 )
 
 // Version is the build's version string, surfaced by /healthz.
@@ -60,7 +63,11 @@ func New(port int, owner string, panel *Panel) http.Handler {
 			Status:  "ok",
 			Version: Version,
 			Port:    port,
-			Owner:   owner,
+			// Read from the marker, not from the value captured at startup:
+			// ownership can transfer while the daemon runs (a manual `serve`
+			// reusing a tribunal daemon), and a frozen answer here would tell
+			// the caller the daemon still belongs to whoever started it.
+			Owner: currentOwner(owner),
 		})
 	})
 	return LoopbackOnly(mux)
@@ -98,6 +105,23 @@ func isLoopbackHost(host string) bool {
 	name = strings.Trim(name, "[]")
 	ip := net.ParseIP(name)
 	return ip != nil && ip.IsLoopback()
+}
+
+// currentOwner returns the owner recorded for the running daemon, falling
+// back to the one this process started with when there is no marker to read.
+func currentOwner(fallback string) string {
+	// Read, never create: Path() does a MkdirAll, and /healthz is polled --
+	// creating a directory on every request is a side effect a read has no
+	// business having.
+	m, err := runtime.Peek()
+	// Trust the marker only when it describes THIS process: the rest of this
+	// package established that invariant (RemoveIfOwn, WriteIfUnchanged), and
+	// a marker written by another daemon would make us report its owner as
+	// ours.
+	if err != nil || m.PID != os.Getpid() {
+		return fallback
+	}
+	return string(m.Owner)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
