@@ -315,7 +315,10 @@ func describeExec(err error) string {
 // exception is declared in the spec, not smuggled in here.
 func decisions(dir, ticketID string, now time.Time) ([]pendency.Pendency, string) {
 	if dir == "" {
-		return nil, ""
+		// An unknown directory is not an empty queue. `ticket show` failing is
+		// exactly when we cannot see the founder's decisions, and answering
+		// "nothing pending" there is the silence this source can least afford.
+		return nil, ticketID + ": ticket directory unknown, decision queue not read"
 	}
 	path := filepath.Join(dir, "decisoes.md")
 	f, err := os.Open(path)
