@@ -17,13 +17,25 @@ allow_repo_commands: false      # default, kept explicit: pushed branches can't 
 disable_project_settings: true  # gate agents must not inherit this repo's AGENTS.md identity
 
 commands:
-  # -trimpath e o que faz o cache de teste do portao existir: todo run e
-  # carvado num worktree NOVO, e sem a flag o binario de teste embute caminhos
-  # absolutos -- caminho novo = chave de cache nova = suite fria em todo run.
-  # VERIFICADO NESTE REPO em 18-08 (a flag quebra suite que acha fixture por
-  # runtime.Caller; a nossa usa t.TempDir()): `go test -trimpath ./...` verde.
+  # -trimpath is what makes the gate's test cache exist at all: every run is
+  # carved into a NEW worktree, and without the flag the test binary embeds
+  # absolute paths -- new path = new cache key = a cold suite on every run.
+  # VERIFIED IN THIS REPO on 18-08 (the flag breaks suites that locate fixtures
+  # through runtime.Caller; ours uses t.TempDir()): `go test -trimpath ./...`
+  # green.
   test: "go test -trimpath ./..."
-  lint: "go vet ./..."
+  # -trimpath here too, and for the same reason -- but the cost only appears
+  # AFTER test adopted it. go vet keys its action on the package build id, so
+  # a vet without the flag no longer shares anything with a test that has it,
+  # and pays a full cold build on every run.
+  #
+  # MEASURED in this repo, 19-08, fresh worktree, cache cleaned, after
+  # `go test -trimpath ./...`:
+  #   go vet ./...            5,94s   (cold: its own namespace, nothing warms it)
+  #   go vet -trimpath ./...  1,46s   (shares the build test just did)
+  # 4,1x. FALSIFIER: if a later measurement in a fresh gate worktree shows
+  # `-trimpath` no faster than without, this line goes back.
+  lint: "go vet -trimpath ./..."
   format: "gofmt -w ."
 
 auto_fix:                       # gate detects; ject fixes (house decision, 2.5.10)

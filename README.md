@@ -68,7 +68,9 @@ go vet ./...      # lint
 gofmt -w .        # formato
 ```
 
-Este repo é **gated**: todo push sai por `git push no-mistakes`.
+Este repo é **gated**: todo push sai por `git push no-mistakes`. O portão roda
+`test` e `lint` com `-trimpath` (comandos e motivo em `.no-mistakes.yaml`) —
+teste que localize fixture por `runtime.Caller` passa aqui e quebra lá.
 
 ## Onde mora a verdade
 
