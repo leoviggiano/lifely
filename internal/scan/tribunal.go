@@ -605,11 +605,9 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		// normal absence, the same call the summary makes, and reporting it as
 		// UNREADABLE trains the reader to ignore the marker that should always
 		// mean something.
-		// Ask the filesystem, not git's prose: git ships translated messages,
-		// so matching "not a git repository" breaks under any other locale.
-		if _, statErr := os.Stat(filepath.Join(root, ".git")); os.IsNotExist(statErr) {
-			return nil, state
-		}
+		// Unreachable as absence: the guard above already returned for a root
+		// with no .git, so anything failing HERE is git failing on a real
+		// repository, and swallowing it would report a dirty tree as clean.
 		var ee *exec.ExitError
 		stderr := ""
 		if errors.As(err, &ee) {
