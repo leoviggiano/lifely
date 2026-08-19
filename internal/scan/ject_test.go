@@ -63,7 +63,7 @@ func TestJectReadsOpenTicketsAndGraph(t *testing.T) {
 	if blocked.Blocks != pendency.Gate {
 		t.Errorf("ject-071 blocks %q, want %q", blocked.Blocks, pendency.Gate)
 	}
-	if !strings.Contains(blocked.Detail, "depende de ject-070") {
+	if !strings.Contains(blocked.Detail, "depends on ject-070") {
 		t.Errorf("the blocked ticket does not name what it waits on: %q", blocked.Detail)
 	}
 	free := byID["ject:ject:ject-070"]
@@ -337,7 +337,7 @@ func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
 			t.Errorf("%s vanished from the panel when the budget ran out", want)
 			continue
 		}
-		if !strings.Contains(msg, "interrompida") {
+		if !strings.Contains(msg, "budget") {
 			t.Errorf("%s was listed without saying the sweep was cut: %q", want, msg)
 		}
 	}

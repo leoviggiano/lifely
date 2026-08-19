@@ -138,7 +138,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 					unvisited["ject:"+rest.Project] = true
 				}
 			}
-			budgetErr = fmt.Sprintf("varredura interrompida no orcamento de %s; %d tickets abertos nao foram detalhados", sweepBudget, left)
+			budgetErr = fmt.Sprintf("sweep stopped at its %s budget; %d open tickets were not detailed", sweepBudget, left)
 			break
 		}
 		detail, derr := showTicket(run, t.ID)
@@ -270,17 +270,17 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool) stri
 		parts = append(parts, "checklist "+strconv.Itoa(t.Progress.Done)+"/"+strconv.Itoa(t.Progress.Total))
 	}
 	if t.ActiveSession {
-		parts = append(parts, "sessão ativa")
+		parts = append(parts, "active session")
 	}
 	if blocked := unmet(d.Dependencies, open); len(blocked) > 0 {
-		parts = append(parts, "bloqueado: depende de "+strings.Join(blocked, ", "))
+		parts = append(parts, "blocked: depends on "+strings.Join(blocked, ", "))
 	}
 	return strings.Join(parts, " · ")
 }
 
 func describeExec(err error) string {
 	if _, ok := err.(*exec.Error); ok {
-		return "ject nao esta no PATH -- a fonte ject fica indisponivel"
+		return "ject is not on PATH -- the ject source is unavailable"
 	}
 	return err.Error()
 }
@@ -326,7 +326,7 @@ func decisions(dir, ticketID string, now time.Time) ([]pendency.Pendency, string
 				Detail:  strings.TrimSpace(strings.Join(body, "\n")),
 				Blocks:  pendency.Founder,
 				Origin:  pendency.Origin{Path: path, Locator: id, Open: "obsidian://open?path=" + path},
-				Surface: "a palavra do fundador, no campo Decisão do bloco",
+				Surface: "the founder\u0027s word, in the block\u0027s Decision field",
 				SeenAt:  now,
 			})
 		}
