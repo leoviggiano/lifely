@@ -168,18 +168,26 @@ func Running() (Marker, bool) {
 		}
 		return Marker{}, false
 	}
-	// Clear only what is provably GONE. A foreign identity means the pid is
-	// alive and we could not recognise it -- a daemon renamed by an upgrade,
-	// or `go run` under another binary name -- and erasing its registration
-	// would strand a running process with no way for status or stop to find
-	// it. Not-ours is a reason to leave it alone, not to delete it.
-	if !m.Live() && m.probe() == identityGone {
+	// Three answers, not two. The previous guard collapsed them twice, in
+	// opposite directions: first it ERASED the marker of a live daemon we
+	// merely failed to recognise; the fix then let that same pid be reported
+	// as a running daemon of ours, which is worse -- callers act on it.
+	//
+	// Only identityOurs is a daemon. Only identityGone may be erased.
+	// Anything alive-but-unrecognised is left exactly as it is and reported
+	// as no daemon: we may neither trust it nor destroy its registration.
+	// One probe, because each one forks `ps` on non-Linux hosts.
+	switch m.probe() {
+	case identityOurs:
+		return m, true
+	case identityGone:
 		if _, rmErr := removeIfUnchanged(m); rmErr != nil {
 			fmt.Fprintf(os.Stderr, "lifely: could not clear the orphaned marker: %v\n", rmErr)
 		}
 		return Marker{}, false
+	default:
+		return Marker{}, false
 	}
-	return m, true
 }
 
 // removeIfCorrupt re-reads and deletes only while the file is still

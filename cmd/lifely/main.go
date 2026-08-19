@@ -334,7 +334,11 @@ func stop(args []string) error {
 			// marker, the other kills a process.
 			switch outcome {
 			case runtime.ForceNothing:
+				// Nothing happened, so the exit code must not say success: a
+				// script closing the panel has to tell "done" from "the world
+				// moved under me and I did not act".
 				fmt.Printf("the marker for pid %d changed under us; nothing was done\n", live.PID)
+				return errRefused
 			case runtime.ForceCleared:
 				// Do not repeat `what` here: it came from the probe BEFORE the
 				// force, and ForceCleared covers both "somebody else's" and
@@ -351,7 +355,15 @@ func stop(args []string) error {
 			// caller in a circle.
 			fmt.Printf("lifely did not touch pid %d: %v\n", live.PID, runtime.ErrNotOwner)
 		default:
-			fmt.Printf("lifely did not touch pid %d: the process %s (%v) -- use --force if you are sure\n", live.PID, what, err)
+			// Only suggest --force where it can actually work. MayStop is the
+			// same guard --force will consult, so offering it to a caller it
+			// will refuse just sends them in a circle -- the exact circle the
+			// *force branch above already avoids.
+			hint := ""
+			if live.MayStop(asker) {
+				hint = " -- use --force if you are sure"
+			}
+			fmt.Printf("lifely did not touch pid %d: the process %s (%v)%s\n", live.PID, what, err, hint)
 		}
 		return errRefused
 	}

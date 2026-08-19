@@ -83,6 +83,27 @@ func TestLiveRejectsARecycledPID(t *testing.T) {
 	}
 }
 
+// A live stranger holding our pid gets BOTH answers right, and the two are
+// independent: Running must not call it a daemon of ours, and must not erase
+// its marker either. Fixing only the erasure produced the worse bug -- the
+// stranger came back reported as a running lifely, and callers act on that.
+func TestRunningNeitherTrustsNorErasesAStranger(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	m := Marker{PID: stranger(t), Port: 7777, Owner: OwnerManual}
+	if err := Write(m); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, ok := Running(); ok {
+		t.Errorf("Running() on a live stranger = (%+v, true): it is not our daemon", got)
+	}
+	if _, err := Read(); err != nil {
+		t.Errorf("Running() erased the marker of a live process it merely could not recognise: %v", err)
+	}
+}
+
 // Stopping a pid that is alive but is not us must refuse, not signal it.
 func TestStopRefusesAForeignPID(t *testing.T) {
 	// A live stranger is NOT "gone": the distinction is what makes --force
