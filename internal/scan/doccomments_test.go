@@ -1,3 +1,18 @@
+//go:build lint
+
+// This file is a source-hygiene check, not a behaviour test, and the build tag
+// says so out loud.
+//
+// The reviewer is right that `go test ./...` should mean "the program works":
+// an assertion about comment placement dilutes that. It is also right that the
+// class is worth catching mechanically -- five instances in one night, none of
+// which any behaviour test could ever see.
+//
+// So it is neither in the default suite nor a script on the gate's PATH (this
+// repo lost an hour to the daemon not finding `go`): it is a tagged test the
+// gate's LINT step runs. `go test ./...` stays behavioural; the check still
+// runs on every push.
+
 package scan
 
 import (

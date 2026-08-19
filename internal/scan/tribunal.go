@@ -140,8 +140,20 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	inFence := false
 	for sc.Scan() {
 		line := sc.Text()
+		// A `#` inside a fenced block is code, not a section. Widening the
+		// lane rule to every heading level widened this too: a board showing
+		// a shell snippet with a `# comment` line would close the lane and
+		// send everything below it out of the founder's group.
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
 		if m := faixaHeading.FindStringSubmatch(line); m != nil {
 			flush()
 			faixa = m[1]

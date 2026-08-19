@@ -437,3 +437,25 @@ func TestLaneEndsAtASiblingHeadingButNotAtASubsection(t *testing.T) {
 		})
 	}
 }
+
+// A `#` inside a fenced code block is code, not a section. The lane rule
+// widened to every heading level, and this widened with it: a board that shows
+// a shell snippet would have closed the lane on its comment line.
+func TestFencedCodeBlockDoesNotCloseTheLane(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Antes**\n\n```sh\n# isto e um comentario de shell\n```\n\n- [ ] **Depois**\n")
+
+	var found bool
+	for _, p := range find(Tribunal(root).Pendencies, "A1") {
+		if strings.Contains(p.Title, "Depois") {
+			found = true
+			if p.Blocks != pendency.Founder {
+				t.Errorf("an item after a fenced block left lane 1: blocks = %q", p.Blocks)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the item after the fenced block was not swept at all")
+	}
+}

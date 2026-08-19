@@ -35,7 +35,10 @@ commands:
   #   go vet -trimpath ./...  1,46s   (shares the build test just did)
   # 4,1x. FALSIFIER: if a later measurement in a fresh gate worktree shows
   # `-trimpath` no faster than without, this line goes back.
-  lint: "go vet -trimpath ./..."
+  # vet plus the tagged source-hygiene checks. They are NOT in `go test ./...`
+  # on purpose: the suite means "the program works", and a doc-comment
+  # assertion is not that. Run here so the check still guards every push.
+  lint: "go vet -trimpath ./... && go test -trimpath -tags lint ./internal/scan/"
   format: "gofmt -w ."
 
 auto_fix:                       # gate detects; ject fixes (house decision, 2.5.10)

@@ -364,7 +364,16 @@ func stop(args []string) error {
 			// sibling branch below says the rule out loud -- a marker we could
 			// not read is not the same as no marker -- and this branch broke
 			// it while sitting three lines above it.
-			return fmt.Errorf("the marker is unreadable and I could not clear it; whether a daemon is running is unknown -- `lifely stop --force --owner manual` clears it")
+			// Name the FILE, not a flag. `--force` cannot reach this path:
+			// stop returns here, so running it again lands in this same
+			// branch with this same error. Second hint tonight that pointed
+			// at a door which does not open -- the first named an --owner the
+			// ownership guard would refuse.
+			where := "the daemon marker"
+			if path, perr := runtime.Path(); perr == nil {
+				where = path
+			}
+			return fmt.Errorf("the marker is unreadable and I could not clear it, so whether a daemon is running is unknown; remove %s by hand", where)
 		}
 		fmt.Println("the unreadable marker was cleared; lifely is not running")
 		return nil
