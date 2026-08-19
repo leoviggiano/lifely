@@ -233,12 +233,6 @@ func removeIfUnchanged(seen Marker) (removed bool, err error) {
 	return true, nil
 }
 
-// ForceStop signals the pid without confirming identity.
-//
-// It exists for the environment where the identity probe cannot run at all --
-// otherwise an unidentifiable marker would be permanently unstoppable. Behind
-// an explicit flag on purpose: signalling a process you cannot identify is a
-// last resort, not a fallback.
 // ForceOutcome says what ForceStop actually did.
 type ForceOutcome int
 
@@ -252,6 +246,13 @@ const (
 	ForceNothing
 )
 
+// ForceStop signals the pid without confirming identity.
+//
+// It exists for the environment where the identity probe cannot run at all --
+// otherwise an unidentifiable marker would be permanently unstoppable. Behind
+// an explicit flag on purpose: signalling a process you cannot identify is a
+// last resort, not a fallback.
+//
 // ForceStop acts on a marker whose process could not be identified, or that
 // belongs to somebody else.
 //

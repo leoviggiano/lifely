@@ -122,6 +122,34 @@ func TestForceDoesNotBypassOwnership(t *testing.T) {
 // undid the heal-instead-of-tripping-forever invariant, because both commands
 // began failing before Running() could clear the file. Two correct fixes that
 // cancelled each other.
+// `stop` on a marker whose process is gone must CLEAR it, not just narrate it.
+// stop reads through Peek, which never heals, so the orphan survived and every
+// later stop repeated the same sentence about a file nothing would remove.
+func TestStopClearsAGoneMarker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	// A pid that has certainly exited.
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting a throwaway process: %v", err)
+	}
+	pid := cmd.Process.Pid
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("waiting on the throwaway process: %v", err)
+	}
+
+	if err := runtime.Write(runtime.Marker{PID: pid, Port: 7777, Owner: runtime.OwnerManual}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stop([]string{"--owner", "manual"}); err != nil {
+		t.Errorf("stop() on a gone daemon = %v, want nil", err)
+	}
+	if _, err := runtime.Read(); err != runtime.ErrNoMarker {
+		t.Errorf("stop() left the orphaned marker behind: %v", err)
+	}
+}
+
 func TestCorruptMarkerIsHealedNotADeadEnd(t *testing.T) {
 	// One corrupt marker per command. Calling status() first healed it, so the
 	// stop() assertion below ran against a clean cache and proved nothing --

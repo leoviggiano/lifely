@@ -104,6 +104,15 @@ func serve(args []string) error {
 	// Loopback only: the panel is never reachable from the network.
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
+		// The marker decides who serves, not the port (spec FR7.4). Binding
+		// happens first for a good reason -- claiming before we know the
+		// bound port would publish a provisional one to `status` and `stop`
+		// -- so the ordering is repaired here instead: a bind that loses to a
+		// daemon already registered is a reuse, not a failure, and the caller
+		// gets the same announcement it would have got a millisecond earlier.
+		if live, ok := runtime.Running(); ok {
+			return announceReuse(live, who, fs, *port)
+		}
 		return fmt.Errorf("listening on 127.0.0.1:%d: %w", *port, err)
 	}
 	bound := listener.Addr().(*net.TCPAddr).Port
@@ -130,7 +139,12 @@ func serve(args []string) error {
 				// refuses to erase it (also right), so the caller has to be
 				// told what actually stands in the way and how to clear it.
 				if stale, perr := runtime.Peek(); perr == nil {
-					return fmt.Errorf("a marker for pid %d is in the way and it is not a lifely daemon; clear it with `lifely stop --force --owner %s`", stale.PID, who)
+					// --owner manual, never `who`: MayStop admits manual
+					// unconditionally, while the owner serve happened to be
+					// called with may be refused by the very guard this hint
+					// is trying to get the caller past. A way out that does
+					// not open is not a way out.
+					return fmt.Errorf("a marker for pid %d is in the way and it is not a lifely daemon; clear it with `lifely stop --force --owner manual`", stale.PID)
 				}
 				return fmt.Errorf("another lifely came up and left while I was registering; try again")
 			}
@@ -310,6 +324,16 @@ func stop(args []string) error {
 		fmt.Printf("lifely (pid %d, owner: %s) received the stop request\n", live.PID, live.Owner)
 		return nil
 	case errors.Is(err, runtime.ErrGone):
+		// Clear what we just proved is an orphan. stop() reads through Peek,
+		// which never heals, so without this every later `stop` repeats the
+		// same sentence about a file nothing will ever remove.
+		// Running() erases a gone marker as part of answering, and reports a
+		// daemon only if one registered while we were looking -- which is a
+		// different outcome and must not be announced as a stop.
+		if live, ok := runtime.Running(); ok {
+			fmt.Printf("lifely (pid %d) registered while I was looking; nothing was stopped\n", live.PID)
+			return errRefused
+		}
 		fmt.Println("lifely is no longer running")
 		return nil
 	case errors.Is(err, runtime.ErrNotOwner):
