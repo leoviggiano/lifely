@@ -2,6 +2,7 @@ package scan
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -124,5 +125,33 @@ func TestLedgerKeepsRowsReadBeforeAFailure(t *testing.T) {
 	}
 	if !reported {
 		t.Error("the scanner failure was not reported as a finding")
+	}
+}
+
+// `git -C` resolves upward. A root that is not a repository but sits inside
+// one must not report the PARENT's dirty tree as if it were this source's --
+// which is what the lifely repo itself would do to any scratch directory
+// under it.
+func TestDirtyTreeDoesNotClimbToAnAncestorRepository(t *testing.T) {
+	outer := t.TempDir()
+	if err := exec.Command("git", "-C", outer, "init", "-q").Run(); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outer, "sujo.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	inner := filepath.Join(outer, "sem-repo")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inner, "FOUNDER.md"), []byte("## Faixa 1\n\n- [ ] **algo**\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, p := range Tribunal(inner).Pendencies {
+		if p.Class == "A5" {
+			t.Errorf("reported the ancestor repository's dirty tree: %q", p.Detail)
+		}
 	}
 }

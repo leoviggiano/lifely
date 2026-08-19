@@ -160,8 +160,6 @@ func faixaBlocker(faixa string) pendency.Blocker {
 	return pendency.AI
 }
 
-// cleanTitle strips the markdown noise without shortening: identity needs the
-// whole thing, so that two items are only ever the same item.
 // boardKey returns the part of a board line that names the item.
 //
 // The board's convention is `**Título** — nota que envelhece`. Keying on the
@@ -559,7 +557,16 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 
 func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	state := SourceState{Name: "git status", Path: root}
+
+	// `git -C` resolves UPWARD looking for a repository, so a root that is not
+	// one but sits inside one would report the PARENT's dirty tree as if it
+	// belonged to this source. Ask the filesystem first, and confine git with
+	// a ceiling so it cannot climb even if the check races.
+	if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr != nil {
+		return nil, state
+	}
 	cmd := exec.Command("git", "-C", root, "status", "--porcelain")
+	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+root)
 	out, err := cmd.Output()
 	if err != nil {
 		// A root that is not a repository has no tree to be dirty: that is
