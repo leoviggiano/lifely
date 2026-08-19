@@ -23,7 +23,18 @@ commands:
   # VERIFICADO NESTE REPO em 18-08 (a flag quebra suite que acha fixture por
   # runtime.Caller; a nossa usa t.TempDir()): `go test -trimpath ./...` verde.
   test: "go test -trimpath ./..."
-  lint: "go vet ./..."
+  # -trimpath here too, and for the same reason -- but the cost only appears
+  # AFTER test adopted it. go vet keys its action on the package build id, so
+  # a vet without the flag no longer shares anything with a test that has it,
+  # and pays a full cold build on every run.
+  #
+  # MEASURED in this repo, 19-08, fresh worktree, cache cleaned, after
+  # `go test -trimpath ./...`:
+  #   go vet ./...            5,94s   (cold: its own namespace, nothing warms it)
+  #   go vet -trimpath ./...  1,46s   (shares the build test just did)
+  # 4,1x. FALSIFIER: if a later measurement in a fresh gate worktree shows
+  # `-trimpath` no faster than without, this line goes back.
+  lint: "go vet -trimpath ./..."
   format: "gofmt -w ."
 
 auto_fix:                       # gate detects; ject fixes (house decision, 2.5.10)
