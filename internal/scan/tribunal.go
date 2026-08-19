@@ -878,12 +878,15 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 	seenLifeKeys := map[string]bool{}
 	// Same fence guard as the board and the decision queue: a `#` or an
 	// [ABERTO] inside a shell snippet is code, not a marker.
-	inFence := false
+	inFence, fenceOpenedAt := false, 0
 	for sc.Scan() {
 		line++
 		text := sc.Text()
 		if strings.HasPrefix(strings.TrimSpace(text), "```") {
 			inFence = !inFence
+			if inFence {
+				fenceOpenedAt = line
+			}
 			continue
 		}
 		if inFence {
@@ -923,6 +926,14 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 	}
 	if err := sc.Err(); err != nil {
 		state.Err = err.Error()
+	}
+	if inFence {
+		// The board reports this; the copy that landed here brought only the
+		// skip half, which recreated the silent truncation in life.md.
+		if state.Err != "" {
+			state.Err += "; "
+		}
+		state.Err += fmt.Sprintf("a code fence opened at line %d was never closed; the markers below it were not read", fenceOpenedAt)
 	}
 	state.Count = len(items)
 	return items, state

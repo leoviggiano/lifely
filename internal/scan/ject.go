@@ -430,14 +430,25 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 	// The guard landed on ONE of the three markdown scanners and the review
 	// named the other two -- the same "fixed the site, not the class" this
 	// package has now paid for five times.
-	inFence := false
+	inFence, fenceOpenedAt, row := false, 0, 0
 	for sc.Scan() {
+		row++
 		line := sc.Text()
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			inFence = !inFence
+			if inFence {
+				fenceOpenedAt = row
+			}
+			body = append(body, line)
 			continue
 		}
+		// Inside a fence the line is CONTENT, never structure. It still goes
+		// into the body: the whole block is the decision surface the founder
+		// reads, and swallowing a snippet out of it would summarise for him.
+		// The first version of this guard dropped it, which is the opposite of
+		// what the guard is for.
 		if inFence {
+			body = append(body, line)
 			continue
 		}
 		if strings.HasPrefix(line, "## ") {
@@ -457,6 +468,13 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 		body = append(body, line)
 	}
 	flush()
+	if inFence {
+		// Same report founderBoard makes: a fence that never closes hides
+		// everything after it, and the copy that landed here brought only the
+		// skip half of that guard -- recreating in A7 the silent truncation
+		// the board had just been fixed for.
+		return items, fmt.Sprintf("a code fence opened at line %d was never closed; the decisions below it were not read", fenceOpenedAt)
+	}
 	if err := sc.Err(); err != nil {
 		return items, err.Error()
 	}

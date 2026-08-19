@@ -452,3 +452,24 @@ func TestFencedCodeIsNotStructureInAnySource(t *testing.T) {
 		t.Errorf("A6 swept %d markers, want 1: the one inside the fence is code", len(got))
 	}
 }
+
+// Every markdown scanner reports an unclosed fence. The guard was copied to
+// A6 and A7 with only its SKIP half, which recreated in both the silent
+// truncation the board had just been fixed for -- sweeping a class propagates
+// the WHOLE fix or it propagates the bug.
+func TestUnbalancedFenceIsReportedInEverySource(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "life.md"),
+		[]byte("## 2.5\n\n```sh\n# nunca fecha\n\n[ABERTO] perdido\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var marked bool
+	for _, s := range Tribunal(root).Sources {
+		if s.Name == "life.md" && strings.Contains(s.Err, "never closed") {
+			marked = true
+		}
+	}
+	if !marked {
+		t.Error("life.md was truncated by an unbalanced fence and nothing said so")
+	}
+}
