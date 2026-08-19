@@ -489,3 +489,24 @@ func TestUnreadableDecisionQueueIsAFinding(t *testing.T) {
 		t.Error("an unreadable decision queue was swallowed as 'nothing pending'")
 	}
 }
+
+// The status WORD decides, never a substring of the line. A block the founder
+// already decided often keeps the history in the same line -- "decidido
+// (antes: pendente)" -- and matching the line put it back in his queue.
+func TestDecidedBlockMentioningPendenteIsNotPending(t *testing.T) {
+	for _, c := range []struct {
+		status string
+		want   bool
+	}{
+		{"🟡 pendente", true},
+		{"pendente", true},
+		{"✅ aprovado, fundador, 18-08-2026", false},
+		{"decidido (antes: pendente)", false},
+		{"✅ decidido — a opção pendente foi descartada", false},
+		{"", false},
+	} {
+		if got := statusIsPending(c.status); got != c.want {
+			t.Errorf("statusIsPending(%q) = %v, want %v", c.status, got, c.want)
+		}
+	}
+}

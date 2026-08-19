@@ -74,6 +74,26 @@ func (p *Panel) sweep() *snapshot {
 	startedAt := p.generation
 	p.mu.Unlock()
 
+	// Deferred, because a panic inside scan.All used to WEDGE the panel: the
+	// flight stayed published and its done channel never closed, so every
+	// later request blocked forever on a sweep that had already died. net/http
+	// recovers the panic for the request that caused it -- and leaves the
+	// process serving nothing but hung readers. Releasing the flight has to
+	// happen on the way out, whichever way out it is.
+	done := false
+	defer func() {
+		p.mu.Lock()
+		if !done && p.generation == startedAt {
+			// Only a completed sweep may become the cache. A panicking one
+			// leaves flight.snap nil, and publishing that would replace the
+			// panel's contents with an empty board.
+			p.cached = nil
+		}
+		p.inflight = nil
+		p.mu.Unlock()
+		close(flight.done)
+	}()
+
 	res, graph := scan.All(p.Root, p.Run)
 	flight.snap = &snapshot{Result: res, Graph: graph}
 
@@ -81,10 +101,8 @@ func (p *Panel) sweep() *snapshot {
 	if p.generation == startedAt {
 		p.cached, p.cachedAt = flight.snap, p.now()
 	}
-	p.inflight = nil
 	p.mu.Unlock()
-
-	close(flight.done)
+	done = true
 	return flight.snap
 }
 

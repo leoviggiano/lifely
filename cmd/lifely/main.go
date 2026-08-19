@@ -84,6 +84,7 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", defaultPort, "port to listen on")
 	owner := fs.String("owner", "", "who started this daemon: manual (yours) or tribunal (the session) -- required")
+	root := fs.String("root", defaultRoot(), "the record repository to sweep")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -197,7 +198,11 @@ func serve(args []string) error {
 	// Only ever clear our own registration (see RemoveIfOwn).
 	defer func() { _ = runtime.RemoveIfOwn(os.Getpid()) }()
 
-	panel := server.NewPanel(defaultRoot(), scanpkg.CLI)
+	// The same sweep `scan --root` already parameterises. Hardcoding it here
+	// meant the daemon could only ever read one repository, so no test and no
+	// second checkout could ever be served -- for a sweep whose root is a flag
+	// three commands over.
+	panel := server.NewPanel(*root, scanpkg.CLI)
 	httpServer := &http.Server{Handler: server.New(bound, string(who), panel)}
 	errs := make(chan error, 1)
 	go func() {

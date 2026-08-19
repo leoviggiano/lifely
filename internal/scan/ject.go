@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/leoviggiano/lifely/internal/pendency"
 )
@@ -326,6 +327,25 @@ func describeExec(tool string, err error) string {
 // same path as a failed read because both leave dependencies unknown, but the
 // reason shown to the reader must differ: "could not be read" about a call
 // that was never made sends the founder looking for a broken vault.
+// statusIsPending reads the STATUS WORD, not the line.
+//
+// `strings.Contains(line, "pendente")` counted `**Status:** decidido (antes:
+// pendente)` as waiting on the founder -- the word appears in the note that
+// says the opposite. The template writes a marker emoji before the word
+// (`**Status:** 🟡 pendente`), so the emoji is skipped and only the first
+// actual word decides.
+func statusIsPending(value string) bool {
+	for _, field := range strings.Fields(value) {
+		// Skip the marker emoji: it carries no letters.
+		if !strings.ContainsFunc(field, unicode.IsLetter) {
+			continue
+		}
+		word := strings.ToLower(strings.Trim(field, ",.;:()"))
+		return word == "pendente"
+	}
+	return false
+}
+
 var errBudgetSpent = errors.New("detail not read: the sweep budget was spent")
 
 func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency.Pendency, string) {
@@ -394,8 +414,8 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 		if id == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "**Status:**") && strings.Contains(line, "pendente") {
-			pendingBlock = true
+		if v, ok := strings.CutPrefix(line, "**Status:**"); ok {
+			pendingBlock = statusIsPending(v)
 		}
 		body = append(body, line)
 	}

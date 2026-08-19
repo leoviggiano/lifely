@@ -8,9 +8,11 @@ sessões de desenvolvimento — sempre pedindo a sessão ao ject, nunca por fora
 dele.
 
 > **Estado hoje:** o quadro sai por `lifely scan`, no terminal. O servidor
-> HTTP responde `/healthz` e serve a casca do painel; as telas ainda não
-> renderizam a varredura. O parágrafo acima descreve o produto da spec do
-> `lifely-001`, não o que já está de pé.
+> HTTP responde `/healthz` e a **API de leitura** (`/api/pendencies`,
+> `/api/sources`, `/api/projects`), com spec OpenAPI gerada em
+> `/swagger/openapi.json`. Não há **nenhuma tela**: os arquivos de `web/`
+> estão embutidos no binário mas nenhuma rota os serve ainda. O parágrafo
+> acima descreve o produto da spec do `lifely-001`, não o que já está de pé.
 
 Duas coisas que ele nunca faz: **dar veredito de [DIREÇÃO]** (quem grava é a
 superfície dona, com o fundador no meio) e **guardar estado de domínio** — a
