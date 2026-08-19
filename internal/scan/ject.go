@@ -234,7 +234,9 @@ func showTicket(run Runner, id string) (ticketDetail, error) {
 	var d ticketDetail
 	raw, err := run("ticket", "show", id, "--json")
 	if err != nil {
-		return d, fmt.Errorf("%s: %w", id, err)
+		// describeExec keeps git/ject's own words; the bare error is only
+		// "exit status 1", which says nothing about what the tool refused on.
+		return d, fmt.Errorf("%s: %s", id, describeExec(err))
 	}
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return d, fmt.Errorf("%s: %w", id, err)
