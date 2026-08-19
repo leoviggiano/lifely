@@ -3,6 +3,7 @@ package scan
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -326,6 +327,48 @@ func TestGraphOmitsTicketsWhoseDetailFailed(t *testing.T) {
 // while the sweep silently dropped ~85 of 90 open tickets: the budget check
 // broke out of the loop before the row was appended. The budget buys detail,
 // never the ticket's existence.
+// The row must name WHICH of the two blindnesses it is under. "could not be
+// read" about a `ticket show` that was never invoked sends the reader after a
+// broken vault when the vault is merely large.
+// The missing-binary sentence must name the binary that is missing. One owner
+// for "keep the tool's own words" is right; one hardcoded NAME inside it is
+// how git's absence came to be reported as ject's.
+func TestDescribeExecNamesTheToolThatFailed(t *testing.T) {
+	_, err := exec.Command("definitely-not-a-real-binary-xyz").Output()
+	if err == nil {
+		t.Skip("the impossible binary exists here")
+	}
+	if got := describeExec("git", err); !strings.Contains(got, "git") {
+		t.Errorf("describeExec(\"git\", ...) = %q, want it to name git", got)
+	}
+	if got := describeExec("git", err); strings.Contains(got, "ject") {
+		t.Errorf("describeExec(\"git\", ...) = %q: it blames ject for git", got)
+	}
+}
+
+func TestBudgetCutSaysBudget_NotUnreadable(t *testing.T) {
+	original := sweepBudget
+	sweepBudget = time.Nanosecond
+	t.Cleanup(func() { sweepBudget = original })
+
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			return []byte(`{"tickets":[{"id":"a-1","project":"alfa","title":"t","status":"ready"}]}`), nil
+		}
+		return nil, nil
+	}
+	items, _, _ := Ject(run, time.Now())
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if strings.Contains(items[0].Detail, "could not be read") {
+		t.Errorf("a ticket never asked about is reported as unreadable: %q", items[0].Detail)
+	}
+	if !strings.Contains(items[0].Detail, "budget") {
+		t.Errorf("the row does not say the budget was spent: %q", items[0].Detail)
+	}
+}
+
 func TestBudgetExhaustionKeepsTicketsListed(t *testing.T) {
 	original := sweepBudget
 	sweepBudget = time.Nanosecond // exhausted before the first ticket

@@ -97,7 +97,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	// truncates without saying so is worse than a source that fails.
 	raw, err := run("recent", "--limit", "0", "--json")
 	if err != nil {
-		return nil, []SourceState{{Name: "ject", Err: describeExec(err)}}, graph
+		return nil, []SourceState{{Name: "ject", Err: describeExec("ject", err)}}, graph
 	}
 	var recent struct {
 		Tickets []recentTicket `json:"tickets"`
@@ -160,7 +160,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 			Class:   "B",
 			Source:  "ject:" + t.Project,
 			Title:   t.ID + " — " + t.Title,
-			Detail:  ticketDetailLine(t, detail, open, derr != nil),
+			Detail:  ticketDetailLine(t, detail, open, derr != nil, errors.Is(derr, errBudgetSpent)),
 			Blocks:  ticketBlocker(t, detail, open, derr != nil),
 			Origin:  pendency.Origin{Path: detail.Dir, Locator: t.ID, Open: "ject ticket show " + t.ID},
 			Surface: "ject start " + t.ID + " --attached",
@@ -229,7 +229,7 @@ func showTicket(run Runner, id string) (ticketDetail, error) {
 	if err != nil {
 		// describeExec keeps git/ject's own words; the bare error is only
 		// "exit status 1", which says nothing about what the tool refused on.
-		return d, fmt.Errorf("%s: %s", id, describeExec(err))
+		return d, fmt.Errorf("%s: %s", id, describeExec("ject", err))
 	}
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return d, fmt.Errorf("%s: %w", id, err)
@@ -271,7 +271,7 @@ func unmet(deps []string, open map[string]bool) []string {
 	return out
 }
 
-func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unknown bool) string {
+func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unknown, budget bool) string {
 	parts := []string{t.Status, t.Priority}
 	if t.Progress.Total > 0 {
 		parts = append(parts, "checklist "+strconv.Itoa(t.Progress.Done)+"/"+strconv.Itoa(t.Progress.Total))
@@ -282,7 +282,12 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unkn
 	if blocked := unmet(d.Dependencies, open); len(blocked) > 0 {
 		parts = append(parts, "blocked: depends on "+strings.Join(blocked, ", "))
 	}
-	if unknown {
+	switch {
+	case budget:
+		// Never say "could not be read" about a call that was never made: the
+		// founder would go looking for a broken vault instead of a slow one.
+		parts = append(parts, "blocked: not detailed, the sweep budget was spent; dependencies unknown")
+	case unknown:
 		// Say WHY it is held back. A ticket marked `gate` with no reason reads
 		// as a judgement; it is an admission that we could not read its
 		// dependencies.
@@ -291,9 +296,14 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unkn
 	return strings.Join(parts, " · ")
 }
 
-func describeExec(err error) string {
+// tool names the binary that failed. Folding dirtyTree into this function
+// (rightly, to keep one owner for "keep the tool's own words") carried ject's
+// name to git's failures: a host without git reported that ject was missing.
+// Deduplicating two things that are only ALMOST the same moves the difference
+// into a parameter -- it does not delete it.
+func describeExec(tool string, err error) string {
 	if _, ok := err.(*exec.Error); ok {
-		return "ject is not on PATH -- the ject source is unavailable"
+		return tool + " is not on PATH -- this source is unavailable"
 	}
 	// Keep what the binary said. Output() puts stderr in ExitError.Stderr and
 	// the bare error is only "exit status 1", which tells the reader nothing
@@ -312,6 +322,10 @@ func describeExec(err error) string {
 // This is the one source read as a file rather than through a command: no ject
 // command returns decisoes.md yet. If one appears, this should use it -- the
 // exception is declared in the spec, not smuggled in here.
+// errBudgetSpent marks a row whose detail was never ATTEMPTED. It travels the
+// same path as a failed read because both leave dependencies unknown, but the
+// reason shown to the reader must differ: "could not be read" about a call
+// that was never made sends the founder looking for a broken vault.
 var errBudgetSpent = errors.New("detail not read: the sweep budget was spent")
 
 func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency.Pendency, string) {

@@ -601,7 +601,7 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		// Unreachable as absence: the guard above already returned for a root
 		// with no .git, so anything failing HERE is git failing on a real
 		// repository, and swallowing it would report a dirty tree as clean.
-		state.Err = describeExec(err)
+		state.Err = describeExec("git", err)
 		return nil, state
 	}
 	lines := strings.FieldsFunc(string(out), func(r rune) bool { return r == '\n' })
