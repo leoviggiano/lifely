@@ -14,6 +14,15 @@ import (
 // fakeJect answers like the real binary, so the scanner can be tested without
 // a vault -- and so a change in what lifely ASKS for shows up as a test
 // failure rather than as an empty panel.
+// dirOf gives every ticket a directory, as ject does, unless the test asked
+// for a specific one.
+func dirOf(dirs map[string]string, id string, t *testing.T) string {
+	if d, ok := dirs[id]; ok {
+		return d
+	}
+	return t.TempDir()
+}
+
 func fakeJect(t *testing.T, dirs map[string]string) Runner {
 	t.Helper()
 	return func(args ...string) ([]byte, error) {
@@ -35,7 +44,10 @@ func fakeJect(t *testing.T, dirs map[string]string) Runner {
 				deps = []string{"ject-070"}
 			}
 			return json.Marshal(map[string]any{
-				"id": id, "dir": dirs[id], "status": "planning", "dependencies": deps,
+				// A successful `ticket show` always carries a dir. Returning ""
+				// here made the fixture describe a state ject never produces,
+				// and a real anomaly looked like a test failure.
+				"id": id, "dir": dirOf(dirs, id, t), "status": "planning", "dependencies": deps,
 			})
 		}
 		return []byte("{}"), nil
