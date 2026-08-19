@@ -94,8 +94,8 @@ func serve(args []string) error {
 	// Absence and failure are different answers, and serve acts on them very
 	// differently: on absence it starts a daemon, on failure it would start a
 	// SECOND one while the first is still up.
-	if _, perr := runtime.Peek(); perr != nil && !errors.Is(perr, runtime.ErrNoMarker) && !runtime.IsCorrupt(perr) {
-		return fmt.Errorf("could not read the daemon marker: %w", perr)
+	if err := markerReadable(); err != nil {
+		return err
 	}
 	if live, ok := runtime.Running(); ok {
 		return announceReuse(live, who, fs, *port)
@@ -240,11 +240,8 @@ func parseOwner(owner string) (runtime.Owner, error) {
 func status() error {
 	// Same distinction `stop` makes: no marker is an answer, an unreadable
 	// marker is not. Running() collapses both into false, so ask first.
-	// A corrupt marker is not a dead end: Running() heals it and reports no
-	// daemon, which is the honest answer. Only a marker we could not READ --
-	// permissions, I/O -- is a failure the caller has to hear about.
-	if _, err := runtime.Peek(); err != nil && !errors.Is(err, runtime.ErrNoMarker) && !runtime.IsCorrupt(err) {
-		return fmt.Errorf("could not read the daemon marker: %w", err)
+	if err := markerReadable(); err != nil {
+		return err
 	}
 	live, ok := runtime.Running()
 	if !ok {
@@ -403,6 +400,20 @@ func stop(args []string) error {
 		return errRefused
 	}
 	return err
+}
+
+// markerReadable separates the two answers serve and status spell the same
+// way: a marker that is absent or corrupt is not a failure (Running heals the
+// corrupt one and honestly reports no daemon), while one we could not READ --
+// permissions, I/O -- must reach the caller. `stop` deliberately does NOT use
+// this: it switches on the same read to say something different about each
+// case, and folding it in here would move that difference, not remove it.
+func markerReadable() error {
+	_, err := runtime.Peek()
+	if err != nil && !errors.Is(err, runtime.ErrNoMarker) && !runtime.IsCorrupt(err) {
+		return fmt.Errorf("could not read the daemon marker: %w", err)
+	}
+	return nil
 }
 
 // errRefused reports a stop deliberately not performed. It exits non-zero so a

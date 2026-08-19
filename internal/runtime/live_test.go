@@ -130,6 +130,23 @@ func TestRunningNeitherTrustsNorErasesAStranger(t *testing.T) {
 	}
 }
 
+// "Already gone" is the goal --force aims at, not a refusal. removeIfUnchanged
+// reports (false, nil) both for that and for "the marker was replaced under
+// us", and folding them made a second, correct cleanup exit non-zero.
+func TestForceStopOnAnAlreadyCleanStateIsNotNothing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// No marker at all: the goal state --force aims at is already true.
+	m := Marker{PID: 999999, Owner: OwnerManual}
+	out, err := m.ForceStop(OwnerManual)
+	if err != nil {
+		t.Fatalf("ForceStop = %v", err)
+	}
+	if out == ForceNothing {
+		t.Error("ForceStop on an already clean state = ForceNothing: a second, correct cleanup reports failure")
+	}
+}
+
 // Stopping a pid that is alive but is not us must refuse, not signal it.
 func TestStopRefusesAForeignPID(t *testing.T) {
 	// A live stranger is NOT "gone": the distinction is what makes --force

@@ -155,15 +155,9 @@ func Running() (Marker, bool) {
 		}
 		return Marker{}, false
 	}
-	// Three answers, not two. The previous guard collapsed them twice, in
-	// opposite directions: first it ERASED the marker of a live daemon we
-	// merely failed to recognise; the fix then let that same pid be reported
-	// as a running daemon of ours, which is worse -- callers act on it.
-	//
-	// Only identityOurs is a daemon. Only identityGone may be erased.
-	// Anything alive-but-unrecognised is left exactly as it is and reported
-	// as no daemon: we may neither trust it nor destroy its registration.
-	// One probe, because each one forks `ps` on non-Linux hosts.
+	// One probe, because each one forks `ps` on non-Linux hosts. What each
+	// identity means is decided by verdict, below -- the table is the spec,
+	// and a prose copy of it here went stale the moment the table changed.
 	report, erase := verdict(m.probe())
 	if erase {
 		if _, rmErr := removeIfUnchanged(m); rmErr != nil {
@@ -207,8 +201,6 @@ func removeIfCorrupt() error {
 	return Remove()
 }
 
-// removeIfUnchanged deletes the marker only if it still holds exactly what we
-// read before probing.
 // removeIfUnchanged deletes the marker only if it still holds exactly what we
 // read, and REPORTS whether it removed anything.
 //
@@ -284,6 +276,15 @@ func (m Marker) ForceStop(asker Owner) (ForceOutcome, error) {
 			return ForceNothing, err
 		}
 		if !removed {
+			// removeIfUnchanged says (false, nil) for two different worlds:
+			// the marker was already gone, and the marker was REPLACED while
+			// we looked. Only the second is "nothing was done" -- and since
+			// ForceNothing now exits non-zero, collapsing them made a second,
+			// correct cleanup report failure. Ask what the end state is: the
+			// goal here is an absent marker, not our own hand removing it.
+			if _, rerr := Peek(); errors.Is(rerr, ErrNoMarker) {
+				return ForceCleared, nil
+			}
 			return ForceNothing, nil
 		}
 		return ForceCleared, nil
