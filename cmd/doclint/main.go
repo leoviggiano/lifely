@@ -145,7 +145,8 @@ func check(root string) ([]string, error) {
 
 // docUnit is one doc comment together with the names it is allowed to open
 // with. A declaration can carry several: a parenthesised const/var/type block
-// has its own comment plus one per spec inside it.
+// has its own comment plus one per spec inside it, and any type spec adds one
+// per documented struct field or interface method.
 type docUnit struct {
 	doc    *ast.CommentGroup
 	owners []string
