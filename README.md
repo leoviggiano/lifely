@@ -7,6 +7,11 @@ ject), mostra o que espera decisão agrupado por **quem bloqueia**, e dirige as
 sessões de desenvolvimento — sempre pedindo a sessão ao ject, nunca por fora
 dele.
 
+> **Estado hoje:** o quadro sai por `lifely scan`, no terminal. O servidor
+> HTTP responde `/healthz` e serve a casca do painel; as telas ainda não
+> renderizam a varredura. O parágrafo acima descreve o produto da spec do
+> `lifely-001`, não o que já está de pé.
+
 Duas coisas que ele nunca faz: **dar veredito de [DIREÇÃO]** (quem grava é a
 superfície dona, com o fundador no meio) e **guardar estado de domínio** — a
 verdade vive nos arquivos do tribunal, no ject e no store do Claude.
