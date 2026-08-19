@@ -20,9 +20,11 @@
 //
 // What it does NOT reach, said plainly so the claim above stays honest: doc
 // comments on struct fields and interface methods (ast.Field), which live in a
-// different AST container and are a surface of their own; and a comment above
-// `const (` itself, which Go convention says documents the GROUP, so it owns
-// every name in the block by design.
+// different AST container and are a surface of their own. A comment above
+// `const (` itself IS examined, but it owns every name in the block at once --
+// Go convention says it documents the GROUP -- so a member slipping in under it
+// is not a misplacement here; it is still flagged when its first word names a
+// symbol declared somewhere else in the file.
 package main
 
 import (
