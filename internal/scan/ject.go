@@ -330,12 +330,17 @@ func statusIsPending(value string) bool {
 			continue
 		}
 		// plainText first: the template's own emphasis (`**pendente**`) made
-		// the comparison fail, and this direction is the dangerous one -- a
-		// decision that IS waiting drops out of the founder's queue.
+		// the comparison fail.
 		word := strings.ToLower(strings.Trim(plainText(field), ",.;:()"))
-		return word == "pendente"
+		// EXCLUSION, not equality -- the same rule the ledger sweep in this
+		// package already applies, and for the same reason: requiring the word
+		// to BE "pendente" dropped `**Status:** aguardando` silently, and a
+		// decision that vanishes from the founder's queue is a worse failure
+		// than one row too many on his board.
+		return !terminal[word]
 	}
-	return false
+	// No status word at all is not a decided block either.
+	return true
 }
 
 // errBudgetSpent marks a row whose detail was never ATTEMPTED. It travels the

@@ -422,7 +422,17 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 			continue
 		}
 		items = append(items, pendency.Pendency{
-			ID:      pendency.NewID(pendency.Slug(rel), key),
+			// The RAW relative path, not its slug. Slug maps every
+			// non-alphanumeric run to "-", so `a/b.tsv` and `a-b.tsv` slugged
+			// identically and two ledgers shared one namespace. Paths are
+			// unique by definition, and the API route is `{id...}` precisely
+			// so an id may contain a separator.
+			//
+			// Audited all eight NewID sites while here: four carry the
+			// collision tiebreak, three key on literals or on ids unique by
+			// construction -- checked on the KEY, not on the input, which is
+			// the check this site failed.
+			ID:      pendency.NewID(rel, key),
 			Class:   "A2",
 			Source:  rel,
 			Title:   describe(header, cells),

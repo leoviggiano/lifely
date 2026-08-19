@@ -508,7 +508,10 @@ func TestDecidedBlockMentioningPendenteIsNotPending(t *testing.T) {
 		{"✅ aprovado, fundador, 18-08-2026", false},
 		{"decidido (antes: pendente)", false},
 		{"✅ decidido — a opção pendente foi descartada", false},
-		{"", false},
+		// No status word at all is a malformed block, not a decided one: under
+		// the exclusion rule it stays visible, because a decision that
+		// disappears from the founder's queue is the worse failure.
+		{"", true},
 	} {
 		if got := statusIsPending(c.status); got != c.want {
 			t.Errorf("statusIsPending(%q) = %v, want %v", c.status, got, c.want)

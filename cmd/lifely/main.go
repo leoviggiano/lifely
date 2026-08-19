@@ -498,9 +498,10 @@ func scanCmd(args []string) error {
 	// invariant this command was built on says it in full: "nothing pending"
 	// must never be the answer to "I never looked".
 	unread := countUnreadable(res.Sources)
+	incomplete := sweepIncomplete(res.Sources)
 
 	if len(res.Pendencies) == 0 {
-		if unread > 0 {
+		if incomplete {
 			fmt.Printf("Nothing pending in what could be read -- but %d source(s) could not be read. This is NOT a clean board.\n", unread)
 			printSources(res.Sources)
 			return errIncomplete
@@ -535,7 +536,7 @@ func scanCmd(args []string) error {
 	}
 
 	printSources(res.Sources)
-	if unread > 0 {
+	if incomplete {
 		return errIncomplete
 	}
 	return nil
@@ -554,8 +555,12 @@ func countUnreadable(sources []scanpkg.SourceState) int {
 	return n
 }
 
-// sweepIncomplete is the predicate the exit code uses, named so a test can
-// exercise the contract without running a whole sweep.
+// sweepIncomplete is the predicate the exit code uses.
+//
+// It exists so the contract can be tested without running a whole sweep -- and
+// scanCmd CALLS it, because a predicate that only its own test invokes proves
+// nothing about the binary. That was the shape this function shipped in for
+// one round.
 func sweepIncomplete(sources []scanpkg.SourceState) bool {
 	return countUnreadable(sources) > 0
 }

@@ -76,7 +76,9 @@ func TestTribunalReadsEachSource(t *testing.T) {
 	if len(ledger) != 1 {
 		t.Fatalf("the ledger gave %d open rows, want 1", len(ledger))
 	}
-	if ledger[0].ID != "ideias-index-tsv:3" {
+	// The raw path, not its slug: two ledgers whose paths slug the same used
+	// to share a namespace and one row would take the other's identity.
+	if ledger[0].ID != "ideias/index.tsv:3" {
 		t.Errorf("ledger id = %q, want the row's own id", ledger[0].ID)
 	}
 	if ledger[0].Surface != "/ideia <id> aderir · desistir · refinar" {
