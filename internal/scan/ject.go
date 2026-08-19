@@ -340,7 +340,10 @@ func statusIsPending(value string) bool {
 		if !strings.ContainsFunc(field, unicode.IsLetter) {
 			continue
 		}
-		word := strings.ToLower(strings.Trim(field, ",.;:()"))
+		// plainText first: the template's own emphasis (`**pendente**`) made
+		// the comparison fail, and this direction is the dangerous one -- a
+		// decision that IS waiting drops out of the founder's queue.
+		word := strings.ToLower(strings.Trim(plainText(field), ",.;:()"))
 		return word == "pendente"
 	}
 	return false

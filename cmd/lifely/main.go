@@ -73,7 +73,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `lifely -- local panel of pending decisions and orchestrator of the work
 
 Usage:
-  lifely serve --owner manual|tribunal [--port N]     start the panel
+  lifely serve --owner manual|tribunal [--port N] [--root DIR]
+                                                      start the panel
   lifely scan [--root DIR]                            sweep the sources and print the board
   lifely status                                       report whether the panel is up
   lifely stop --owner manual|tribunal [--force]       stop the panel

@@ -82,6 +82,18 @@ func (p *Panel) sweep() *snapshot {
 	// happen on the way out, whichever way out it is.
 	done := false
 	defer func() {
+		if !done && flight.snap == nil {
+			// The waiters on this flight return flight.snap verbatim, so a
+			// panic used to hand them a nil pointer -- fixing the wedge had
+			// simply moved the failure. A failed sweep is a SOURCE that could
+			// not be read, which this panel already knows how to show: an
+			// empty board carrying the finding, never a nil and never a
+			// silent zero.
+			flight.snap = &snapshot{Result: scan.Result{
+				At:      p.now(),
+				Sources: []scan.SourceState{{Name: "sweep", Err: "the sweep failed before it finished; the board below is empty because nothing was read"}},
+			}}
+		}
 		p.mu.Lock()
 		if !done && p.generation == startedAt {
 			// Only a completed sweep may become the cache. A panicking one

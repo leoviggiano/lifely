@@ -510,3 +510,23 @@ func TestDecidedBlockMentioningPendenteIsNotPending(t *testing.T) {
 		}
 	}
 }
+
+// The template writes the status with emphasis (`**Status:** **pendente**`),
+// and trimming only punctuation compared "**pendente**" against "pendente".
+// This is the dangerous direction of the bug: a decision that IS waiting on
+// the founder drops out of his queue silently.
+func TestStatusWithEmphasisIsStillPending(t *testing.T) {
+	for _, c := range []struct {
+		status string
+		want   bool
+	}{
+		{"**pendente**", true},
+		{"🟡 **pendente**", true},
+		{"`pendente`", true},
+		{"**decidido** (antes: pendente)", false},
+	} {
+		if got := statusIsPending(c.status); got != c.want {
+			t.Errorf("statusIsPending(%q) = %v, want %v", c.status, got, c.want)
+		}
+	}
+}

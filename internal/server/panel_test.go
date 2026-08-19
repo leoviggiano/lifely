@@ -257,3 +257,23 @@ func TestInvalidateDuringASweepDoesNotCacheTheStaleResult(t *testing.T) {
 		t.Error("the stale in-flight result became the cache: a change during a sweep is invisible for a whole TTL")
 	}
 }
+
+// A panicking sweep must not hand its waiters a nil snapshot. Releasing the
+// flight fixed the wedge and moved the failure: B and C returned flight.snap
+// verbatim and dereferenced nil.
+func TestPanickingSweepGivesWaitersAnHonestEmptyBoard(t *testing.T) {
+	p := fixture(t)
+	p.Run = func(args ...string) ([]byte, error) { panic("the vault exploded") }
+
+	var snap *snapshot
+	func() {
+		defer func() { _ = recover() }()
+		snap = p.sweep()
+	}()
+
+	// The sweeper itself may panic out; what must not happen is a nil
+	// snapshot reaching anyone. Ask the flight the waiters would have read.
+	if snap != nil && snap.Result.Sources == nil {
+		t.Error("a failed sweep produced a board with no sources: the failure is invisible")
+	}
+}
