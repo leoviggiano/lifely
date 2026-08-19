@@ -370,14 +370,27 @@ func TestLatestSummaryIgnoresNonDateDirectories(t *testing.T) {
 	}
 }
 
-// A --root that does not exist has no ledgers to be unreadable. The check
-// became reachable when `serve` gained --root: a typo in the flag used to come
-// back as "the ledgers are unreadable", pointing the reader at the wrong thing.
-func TestAbsentRootIsNotAnUnreadableLedger(t *testing.T) {
+// A --root that does not exist is a FINDING, and it is named as the root.
+//
+// Two wrong answers were tried before this one. First it came back as "the
+// ledgers are unreadable", pointing the reader at the wrong thing. The fix for
+// that made it silent -- and silence was worse: a typo in --root then read
+// exactly like a clean tribunal, so "nothing pending" meant "I never looked".
+// Absent SOURCE is silence; absent ROOT is a finding.
+func TestAbsentRootIsReportedAsTheRootNotAsALedger(t *testing.T) {
 	res := Tribunal(filepath.Join(t.TempDir(), "does-not-exist"))
-	for _, s := range res.Sources {
-		if s.Err != "" {
-			t.Errorf("source %q on an absent root reported: %q", s.Name, s.Err)
-		}
+
+	if len(res.Sources) != 1 {
+		t.Fatalf("got %d sources, want exactly 1 (the root)", len(res.Sources))
+	}
+	got := res.Sources[0]
+	if got.Name != "root" {
+		t.Errorf("the finding is named %q, want \"root\": a missing root must not be blamed on a source inside it", got.Name)
+	}
+	if got.Err == "" {
+		t.Error("an absent root produced no finding: nothing pending would mean nothing looked at")
+	}
+	if len(res.Pendencies) != 0 {
+		t.Errorf("got %d pendencies from a root that does not exist", len(res.Pendencies))
 	}
 }

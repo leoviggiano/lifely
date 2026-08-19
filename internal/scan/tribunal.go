@@ -47,6 +47,18 @@ func Tribunal(root string) Result {
 	now := time.Now()
 	res := Result{At: now}
 
+	// A missing SOURCE is silence; a missing ROOT is a finding. The two got
+	// collapsed one commit ago and produced the worst possible screen: a typo
+	// in --root swept nothing, reported nothing, and read exactly like a clean
+	// tribunal. "Nothing pending" must never be the answer to "I never looked".
+	if _, err := os.Stat(root); err != nil {
+		res.Sources = append(res.Sources, SourceState{
+			Name: "root", Path: root,
+			Err: "the record repository could not be read: " + err.Error(),
+		})
+		return res
+	}
+
 	for _, sweep := range []func(string, time.Time) ([]pendency.Pendency, SourceState){
 		founderBoard, ledgers, latestSummary, agenda, dirtyTree, lifeMarkers,
 	} {

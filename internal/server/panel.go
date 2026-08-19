@@ -89,7 +89,11 @@ func (p *Panel) sweep() *snapshot {
 			// not be read, which this panel already knows how to show: an
 			// empty board carrying the finding, never a nil and never a
 			// silent zero.
-			flight.snap = &snapshot{Result: scan.Result{
+			// Graph non-nil for the same reason the board is non-nil: the API
+			// serialises it without omitempty, so a nil map reaches the panel
+			// as "graph": null and every consumer has to special-case a shape
+			// that only a panic can produce.
+			flight.snap = &snapshot{Graph: map[string][]string{}, Result: scan.Result{
 				At:      p.now(),
 				Sources: []scan.SourceState{{Name: "sweep", Err: "the sweep failed before it finished; the board below is empty because nothing was read"}},
 			}}
