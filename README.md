@@ -89,14 +89,15 @@ Este repo é **gated**: todo push sai por `git push no-mistakes`. O portão roda
 teste que localize fixture por `runtime.Caller` passa aqui e quebra lá. O `lint`
 do portão são os **dois** comandos acima: `go vet` mais o `doclint`, que recusa
 comentário de doc que ficou no símbolo errado — inserir uma função entre o
-comentário e sua declaração, ou um membro entre o comentário e a constante que
-ele documenta dentro de um `const(...)`, não quebra compilação nem teste. O
-`doclint` cobre toda declaração de topo: func, type, var e const soltos, e cada
-spec dentro de `const(...)`/`var(...)`/`type(...)`. Import fica de fora de
-propósito: um comentário só é acusado quando a declaração que o carrega
-declara algum nome, e import não declara nome que o lint indexe. O
-`cmd/doclint` diz por que isso é lint, e não suíte, e o que fica fora do
-alcance.
+comentário e sua declaração, um membro entre o comentário e a constante que
+ele documenta dentro de um `const(...)`, ou um campo entre o comentário e o
+campo de struct que ele descreve, não quebra compilação nem teste. O `doclint`
+cobre toda declaração de topo: func, type, var e const soltos, cada spec
+dentro de `const(...)`/`var(...)`/`type(...)`, e os campos de struct e métodos
+de interface declarados num `type`. Import fica de fora de propósito: um
+comentário só é acusado quando a declaração que o carrega declara algum nome,
+e import não declara nome que o lint indexe. O `cmd/doclint` diz por que isso
+é lint, e não suíte, e o que fica fora do alcance.
 
 ## Onde mora a verdade
 
