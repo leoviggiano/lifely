@@ -396,9 +396,11 @@ func TestBudgetExhaustionKeepsTicketsListed(t *testing.T) {
 		}
 	}
 
+	// Note, not Err: a budget cut is "read, not exhausted", and the panel must
+	// not label it the way it labels a source it could not read at all.
 	seen := map[string]string{}
 	for _, s := range states {
-		seen[s.Name] = s.Err
+		seen[s.Name] = s.Note
 	}
 	for _, want := range []string{"ject:alfa", "ject:beta"} {
 		msg, present := seen[want]
@@ -446,12 +448,15 @@ func TestBudgetNoteOnlyMarksTheProjectsActuallyCut(t *testing.T) {
 	for _, s := range states {
 		switch s.Name {
 		case "ject:alfa":
-			if s.Err != "" {
-				t.Errorf("alfa was swept in full but reads as partial: %q", s.Err)
+			if s.Note != "" || s.Err != "" {
+				t.Errorf("alfa was swept in full but reads as partial: note=%q err=%q", s.Note, s.Err)
 			}
 		case "ject:beta":
-			if !strings.Contains(s.Err, "2 of its open tickets") {
-				t.Errorf("beta must own its own cut count, got %q", s.Err)
+			if s.Err != "" {
+				t.Errorf("a budget cut must not be reported as a read failure: %q", s.Err)
+			}
+			if !strings.Contains(s.Note, "2 of its open tickets") {
+				t.Errorf("beta must own its own cut count, got %q", s.Note)
 			}
 		}
 	}

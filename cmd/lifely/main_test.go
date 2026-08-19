@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/leoviggiano/lifely/internal/runtime"
+	scanpkg "github.com/leoviggiano/lifely/internal/scan"
 )
 
 // The command layer carries contracts nobody else can check: which exit code
@@ -175,6 +176,27 @@ func TestCorruptMarkerIsHealedNotADeadEnd(t *testing.T) {
 			}
 			if _, err := runtime.Read(); err != runtime.ErrNoMarker {
 				t.Errorf("%s() left the corrupt marker behind: %v", name, err)
+			}
+		})
+	}
+}
+
+// The partial-sweep contract the README tells scripts to depend on: a source
+// that could not be READ makes scan exit non-zero, while a source that was
+// read but not exhausted (the sweep budget) does NOT -- a big vault is not a
+// broken one.
+func TestScanExitCodeSeparatesUnreadableFromPartial(t *testing.T) {
+	for name, c := range map[string]struct {
+		state   scanpkg.SourceState
+		wantErr bool
+	}{
+		"unreadable": {scanpkg.SourceState{Name: "x", Err: "permission denied"}, true},
+		"budget-cut": {scanpkg.SourceState{Name: "x", Count: 3, Note: "sweep stopped at its budget"}, false},
+		"clean":      {scanpkg.SourceState{Name: "x", Count: 3}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := sweepIncomplete([]scanpkg.SourceState{c.state}); got != c.wantErr {
+				t.Errorf("sweepIncomplete(%+v) = %v, want %v", c.state, got, c.wantErr)
 			}
 		})
 	}

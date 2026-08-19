@@ -194,11 +194,12 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		// Only the projects actually cut carry the note, with their own count:
 		// a project swept in full was being labelled "partial" and handed a
 		// number of tickets belonging to someone else.
+		// Note, not Err: nothing failed here. The budget cut means the source
+		// was READ and not exhausted, and putting that in Err made the whole
+		// scan exit non-zero as if the vault were broken -- punishing a big
+		// vault with the signal reserved for a broken one.
 		if cut := budgetCut[name]; cut > 0 {
-			if st.Err != "" {
-				st.Err += "; "
-			}
-			st.Err += fmt.Sprintf("sweep stopped at its %s budget; %d of its open tickets are listed without detail", sweepBudget, cut)
+			st.Note = fmt.Sprintf("sweep stopped at its %s budget; %d of its open tickets are listed without detail", sweepBudget, cut)
 		}
 		states = append(states, st)
 	}
@@ -207,14 +208,11 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		// decisions waiting on the founder, so this source under-reports for
 		// the same reason the ject ones do -- and it is the one source where
 		// silence is least affordable.
-		err := decisionErr
+		note := ""
 		if cut := len(budgetCut); cut > 0 {
-			if err != "" {
-				err += "; "
-			}
-			err += fmt.Sprintf("the sweep budget was spent; tickets listed without detail in %d project(s) were not read for decisions", cut)
+			note = fmt.Sprintf("the sweep budget was spent; tickets listed without detail in %d project(s) were not read for decisions", cut)
 		}
-		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: err})
+		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: decisionErr, Note: note})
 	}
 	return items, states, graph
 }

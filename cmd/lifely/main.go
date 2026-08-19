@@ -497,12 +497,7 @@ func scanCmd(args []string) error {
 	// A sweep that could not read something is not a clean sweep, and the
 	// invariant this command was built on says it in full: "nothing pending"
 	// must never be the answer to "I never looked".
-	unread := 0
-	for _, s := range res.Sources {
-		if s.Err != "" {
-			unread++
-		}
-	}
+	unread := countUnreadable(res.Sources)
 
 	if len(res.Pendencies) == 0 {
 		if unread > 0 {
@@ -546,6 +541,25 @@ func scanCmd(args []string) error {
 	return nil
 }
 
+// countUnreadable counts sources that could not be READ. A source carrying
+// only a Note was read and not exhausted, which is a different fact and must
+// not reach the exit code.
+func countUnreadable(sources []scanpkg.SourceState) int {
+	n := 0
+	for _, s := range sources {
+		if s.Err != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// sweepIncomplete is the predicate the exit code uses, named so a test can
+// exercise the contract without running a whole sweep.
+func sweepIncomplete(sources []scanpkg.SourceState) bool {
+	return countUnreadable(sources) > 0
+}
+
 func printSources(sources []scanpkg.SourceState) {
 	if len(sources) == 0 {
 		return
@@ -556,6 +570,10 @@ func printSources(sources []scanpkg.SourceState) {
 		// unreadable ledger must not erase the tally of the ones that were
 		// read. Either fact alone leaves the reader with half the picture.
 		switch {
+		case s.Note != "" && s.Err == "":
+			// Read, not exhausted. Distinct from UNREADABLE on purpose: this
+			// one does not make the sweep incomplete-by-failure.
+			fmt.Printf("  %s %d (partial -- %s)\n", pad(s.Name, 30), s.Count, s.Note)
 		case s.Err != "" && s.Count > 0:
 			fmt.Printf("  %s %d (partial -- %s)\n", pad(s.Name, 30), s.Count, s.Err)
 		case s.Err != "":

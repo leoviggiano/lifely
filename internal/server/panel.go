@@ -263,13 +263,16 @@ type sourceJSON struct {
 	Path  string `json:"path,omitempty"`
 	Count int    `json:"count"`
 	Error string `json:"error,omitempty"`
+	// Note carries "read but not exhausted"; a consumer that treats it as an
+	// error would report a big vault as a broken one.
+	Note string `json:"note,omitempty"`
 }
 
 func (p *Panel) sources(c fuego.ContextNoBody) (sourcesResponse, error) {
 	snap := p.sweep()
 	out := []sourceJSON{}
 	for _, s := range snap.Result.Sources {
-		out = append(out, sourceJSON{Name: s.Name, Path: s.Path, Count: s.Count, Error: s.Err})
+		out = append(out, sourceJSON{Name: s.Name, Path: s.Path, Count: s.Count, Error: s.Err, Note: s.Note})
 	}
 	// Sources that could not be read travel with the rest, marked: absence of
 	// a source is a finding, never silence (spec FR1.3/NFR6).

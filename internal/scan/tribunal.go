@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -32,7 +33,15 @@ type SourceState struct {
 	Name  string
 	Path  string
 	Count int
-	Err   string
+	// Err is a source that could NOT BE READ. Everything downstream treats it
+	// that way -- printSources says UNREADABLE, scan exits non-zero -- so a
+	// remark that is not a read failure must not travel here.
+	Err string
+	// Note is a source read successfully but not exhaustively: the sweep
+	// budget cut it short. The board is partial, nothing failed, and the
+	// distinction is the difference between "fix your vault" and "the vault
+	// is big".
+	Note string
 }
 
 // Result is one whole sweep.
@@ -51,7 +60,10 @@ func Tribunal(root string) Result {
 	// collapsed one commit ago and produced the worst possible screen: a typo
 	// in --root swept nothing, reported nothing, and read exactly like a clean
 	// tribunal. "Nothing pending" must never be the answer to "I never looked".
-	if _, err := os.Stat(root); err != nil {
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		if err == nil {
+			err = fmt.Errorf("%s is not a directory", root)
+		}
 		res.Sources = append(res.Sources, SourceState{
 			Name: "root", Path: root,
 			Err: "the record repository could not be read: " + err.Error(),
@@ -189,12 +201,6 @@ func faixaBlocker(faixa string) pendency.Blocker {
 // boardID builds the A1 identity, falling back to position when the title
 // slugs to nothing: a line made only of punctuation or emoji would otherwise
 // key on the empty string and collapse with every other such line.
-// uniqueBoardID is boardID plus the tiebreak, kept apart so boardID stays a
-// pure function of the row and only the collision pays position.
-func uniqueBoardID(faixa, title string, ordinal int, seen map[string]bool) string {
-	return uniqueKey(boardID(faixa, title, ordinal), ordinal, seen)
-}
-
 // uniqueKey is the tiebreak both marker sweeps use: a key already emitted in
 // this file pays its position, and only that one.
 //
@@ -231,6 +237,16 @@ func boardID(faixa, title string, ordinal int) string {
 // there applies verbatim here: an item that vanishes from the panel is a
 // decision the founder never sees, which is worse than a conversation that
 // moves. Same problem, so the same answer.
+// uniqueBoardID is boardID plus the tiebreak, kept apart so boardID stays a
+// pure function of the row and only the collision pays position.
+//
+// It lives HERE, after boardKey, and not between boardID's doc comment and
+// boardID -- inserting it there orphaned that comment onto the wrong symbol,
+// the same defect the merge produced two rounds ago.
+func uniqueBoardID(faixa, title string, ordinal int, seen map[string]bool) string {
+	return uniqueKey(boardID(faixa, title, ordinal), ordinal, seen)
+}
+
 func boardKey(line string) string {
 	// Only the bold that OPENS the item counts. Taking any bold run in the
 	// line would key `- [ ] fazer X — **urgente** hoje` on "urgente", and two
@@ -629,7 +645,9 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		return nil, state
 	}
 	var items []pendency.Pendency
-	for _, e := range entries {
+	// Slugs collide where filenames do not; only the collision pays position.
+	seenAgendaKeys := map[string]bool{}
+	for i, e := range entries {
 		// `pauta-`, with the hyphen: the source calls itself `pauta-*.md` in
 		// its own label, in the README and here, and a bare "pauta" prefix
 		// also swallowed `pautas-antigas.md` and `pautado.md`.
@@ -638,7 +656,11 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		}
 		path := filepath.Join(root, e.Name())
 		items = append(items, pendency.Pendency{
-			ID:      pendency.NewID("pauta", pendency.Slug(e.Name())),
+			// Slug, not the filename: `pauta-a b.md` and `pauta-a-b.md` are
+			// different files that slug the same. The previous commit claimed
+			// this site was safe "by construction" -- it checked the input,
+			// not the key.
+			ID:      pendency.NewID("pauta", uniqueKey(pendency.Slug(e.Name()), i, seenAgendaKeys)),
 			Class:   "A4",
 			Source:  e.Name(),
 			Title:   "Open agenda item: " + e.Name(),
