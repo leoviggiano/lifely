@@ -2,7 +2,11 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
+<<<<<<< Updated upstream
 <!-- ject:house:begin v2.16 — instalado por ~/.claude/scripts/ject-registry.sh install.
+=======
+<!-- ject:house:begin v2.27 — instalado por ~/.claude/scripts/ject-registry.sh install.
+>>>>>>> Stashed changes
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -76,7 +80,34 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      de entrada escritos; trava de prompt >10 min reporta ao canal);
      ticket nasce inteiro (encomenda em specs/ + corpo do ticket.md, sem
      placeholder sobrevivente); decisão pendente do fundador mora em
+<<<<<<< Updated upstream
      decisoes.md padronizado (template ject-decisao-pendente). -->
+=======
+     decisoes.md padronizado (template ject-decisao-pendente).
+     v2.20 · 18-08-2026 — mensagem de canal declara o que pede (`ação
+     pedida:` ou `nada a fazer — relato`); caso-fonte lifely-020/021
+     (relato de criação lido como encomenda de criar → duplicatas).
+     v2.21 · 18-08-2026 — checklist de evidência antes de reportar
+     (pedido do fundador, após "verde citado 30× sem cobrir o
+     artefato"); coleção viva em tools/erros-comuns.md na bancada.
+     v2.22 · 18-08-2026 — erros-comuns POR PROJETO no vault (pedido do
+     fundador: específico não infla o geral); funil projeto → casa →
+     checklist, subida por recorrência em 2+ projetos.
+     v2.23 · 18-08-2026 — "código 100% em inglês" explicitado: logs,
+     erros e strings de saída SÃO código; exceção só para texto de UI
+     do produto (achado do fundador no lifely).
+     v2.24 · 18-08-2026 — a exceção de UI da v2.23 REVOGADA pelo
+     fundador na mesma hora: UI também nasce em inglês, tradução por
+     i18n, fallback SEMPRE inglês; gotr é a candidata registrada.
+     v2.25 · 18-08-2026 — item 1 do checklist estendido: "…e mede a
+     propriedade que você afirma?" (caso medido da sessão ject:
+     grep -c linhas × ocorrências; auto-aplicada, ledger pendente).
+     v2.26 · 18-08-2026 — commits em inglês (assunto e corpo) em repo
+     de código ([DIREÇÃO] do fundador; guia global emendado com
+     exemplos EN; bancada segue pt-BR por charter).
+     v2.27 · 18-08-2026 — API em Go usa Fuego (padrão da casa por
+     [DIREÇÃO]; caso provado: ject D19, OpenAPI gerado do código). -->
+>>>>>>> Stashed changes
 
 ## ject — este repositório é rastreado
 
@@ -249,9 +280,31 @@ existe para eliminar.
 - Subagentes spawnados para trabalhar tickets recebem o bloco padrão do
   orquestrador (attach no início; relatório de sessão + `context.md` no fim) —
   subagente não herda esta seção sozinho.
+<<<<<<< Updated upstream
 - Código 100% em inglês; conversa e documentação de produto em pt-BR —
   português normal de conversa: "você" (nunca "tu vais"), frases curtas e
   diretas; denso no conteúdo, simples na forma.
+=======
+- Código 100% em inglês — **e "código" inclui COMMITS (assunto e corpo —
+  v2.26, achado do fundador nos commits pt do lifely: "commit SEMPRE em
+  inglês"), logs, mensagens de erro,
+  nomes de flags, strings de saída E o texto de interface do produto**
+  (v2.23–v2.24; achados do fundador, 18-08: `fmt.Printf("lifely servindo
+  em…")` e, na sequência, "até mesmo a interface do produto deveria ser
+  em inglês"). **UI nasce em inglês e traduz por i18n; o fallback de
+  tradução ausente é SEMPRE inglês** — nenhuma string pt-BR hardcoded em
+  código, nem de log nem de tela. Candidata registrada da casa para i18n
+  em Go: `gotr` (FOUNDER.md, 12-08 — "adoção formal junto do primeiro
+  backend que precisar"); avalie-a antes de escolher outra. Conversa e
+  documentação de produto em pt-BR — português normal: "você" (nunca "tu
+  vais"), frases curtas e diretas; denso no conteúdo, simples na forma.
+- **API em Go usa Fuego** (v2.27; [DIREÇÃO] do fundador, 18-08-2026 —
+  "já se provou útil"; caso provado no registro: ject D19 — "Fuego com
+  OpenAPI gerado do código, UI externa desabilitada", go-fuego/fuego).
+  Vale para API HTTP nova em qualquer repo Go da casa; API já construída
+  sem Fuego não se reescreve por cerimônia — a sessão dona avalia o
+  custo quando tocar nela e escala ao tribunal se divergir do padrão.
+>>>>>>> Stashed changes
 - A bancada da empresa (`~/projects/artifacts`) tem dono único: agente de repo
   NÃO escreve lá — nem template, nem doc. Erro na fonte canônica ou achado que
   precisa da bancada? O canal é mensagem, não escrita: se a sessão da bancada
