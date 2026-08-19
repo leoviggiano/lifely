@@ -69,10 +69,12 @@ Servidor iniciado à mão sobrevive ao fecho da sessão.
 `lifely scan` faz a mesma varredura que o painel e imprime o resultado: as
 pendências agrupadas por quem bloqueia e, depois, o estado de cada fonte —
 fonte que existe e não pôde ser lida sai **marcada**, nunca some, inclusive
-quando não há nenhuma pendência. O repo do tribunal vem de `--root` (padrão
-`~/projects/artifacts`); os tickets vêm do binário `ject` no `PATH` — sem ele,
-a fonte `ject` aparece ilegível, não vazia. O `--root` é o mesmo do `serve`: o
-painel varre exatamente o que este comando varre.
+quando não há nenhuma pendência. Fonte lida pela metade também não some: sai
+marcada `cut short`, mesmo sem nenhuma pendência aberta — "li tudo e não achei
+nada" e "parei no meio" são respostas diferentes. O repo do tribunal vem de
+`--root` (padrão `~/projects/artifacts`); os tickets vêm do binário `ject` no
+`PATH` — sem ele, a fonte `ject` aparece ilegível, não vazia. O `--root` é o
+mesmo do `serve`: o painel varre exatamente o que este comando varre.
 
 ## Desenvolvimento
 
