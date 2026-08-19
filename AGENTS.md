@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.24 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.23 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -88,10 +88,7 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      checklist, subida por recorrência em 2+ projetos.
      v2.23 · 18-08-2026 — "código 100% em inglês" explicitado: logs,
      erros e strings de saída SÃO código; exceção só para texto de UI
-     do produto (achado do fundador no lifely).
-     v2.24 · 18-08-2026 — a exceção de UI da v2.23 REVOGADA pelo
-     fundador na mesma hora: UI também nasce em inglês, tradução por
-     i18n, fallback SEMPRE inglês; gotr é a candidata registrada. -->
+     do produto (achado do fundador no lifely). -->
 
 ## ject — este repositório é rastreado
 
@@ -265,14 +262,11 @@ existe para eliminar.
   orquestrador (attach no início; relatório de sessão + `context.md` no fim) —
   subagente não herda esta seção sozinho.
 - Código 100% em inglês — **e "código" inclui logs, mensagens de erro,
-  nomes de flags, strings de saída E o texto de interface do produto**
-  (v2.23–v2.24; achados do fundador, 18-08: `fmt.Printf("lifely servindo
-  em…")` e, na sequência, "até mesmo a interface do produto deveria ser
-  em inglês"). **UI nasce em inglês e traduz por i18n; o fallback de
-  tradução ausente é SEMPRE inglês** — nenhuma string pt-BR hardcoded em
-  código, nem de log nem de tela. Candidata registrada da casa para i18n
-  em Go: `gotr` (FOUNDER.md, 12-08 — "adoção formal junto do primeiro
-  backend que precisar"); avalie-a antes de escolher outra. Conversa e
+  nomes de flags e toda string de saída de programa** (v2.23; achado do
+  fundador, 18-08: `fmt.Printf("lifely servindo em…")` — "foi acordado
+  que o código fosse sempre em inglês, logs entram nessa mesma regra").
+  A única exceção é **texto de interface do produto** (o que o usuário
+  final lê numa UI), que segue a língua do produto. Conversa e
   documentação de produto em pt-BR — português normal: "você" (nunca "tu
   vais"), frases curtas e diretas; denso no conteúdo, simples na forma.
 - A bancada da empresa (`~/projects/artifacts`) tem dono único: agente de repo
