@@ -42,7 +42,13 @@ func CLI(args ...string) ([]byte, error) {
 	return out, err
 }
 
-// sweepBudget bounds the whole ject sweep, however many tickets it finds. It
+// sweepBudget bounds how long the sweep keeps STARTING work, which is not the
+// same as bounding the wall clock: the deadline is consulted before dispatching
+// each `ticket show`, so the real ceiling is the budget plus one cliTimeout,
+// and the opening `recent` call is bounded by cliTimeout alone, outside it.
+// Stated exactly because the previous wording claimed the whole sweep was
+// bounded and a reader would size the panel's TTL against a promise the code
+// does not make. It
 // is a variable so a test can make exhaustion happen instead of describing it.
 var sweepBudget = 8 * time.Second
 
@@ -420,8 +426,20 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+	// Same fence guard founderBoard got: markdown inside a code block is code.
+	// The guard landed on ONE of the three markdown scanners and the review
+	// named the other two -- the same "fixed the site, not the class" this
+	// package has now paid for five times.
+	inFence := false
 	for sc.Scan() {
 		line := sc.Text()
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
 		if strings.HasPrefix(line, "## ") {
 			flush()
 			head := strings.TrimPrefix(line, "## ")

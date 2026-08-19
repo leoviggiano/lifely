@@ -78,34 +78,30 @@ func check(root string) ([]string, error) {
 			if doc == nil {
 				continue
 			}
-			// Go's own convention is the whole rule: a doc comment OPENS with
-			// the name of what it documents. A line that opens with a declared
-			// name starts a doc block, and if that name is not this
-			// declaration's, the block belongs to somebody else.
-			owners := declaredNames(decl)
-			// Parameter and receiver names count as WRONG owners.
+			// ONLY the first line, because that is where Go's convention
+			// actually binds: a doc comment OPENS with the name of what it
+			// documents. Everything after is prose, and prose legitimately
+			// names other symbols.
 			//
-			// The first version knew only file-level declarations, and a doc
-			// opening with a parameter name (`// tool names the binary...` on
-			// func describeExec(tool string, ...)) sailed through -- an
-			// instance of the exact class this program exists to kill, in the
-			// same commit that added the program. A blind spot in a mechanical
-			// check is worse than no check: it is a check that reports clean.
+			// The previous rule also flagged later paragraphs, which made an
+			// ordinary cross-reference fail the build -- a lint that rejects
+			// correct code is worse than no lint, and this one is wired into
+			// commands.lint with no suppression directive. It still catches
+			// every instance this program was written for: all of them were
+			// blocks glued ABOVE a declaration, so the first line named
+			// somebody else.
+			owners := declaredNames(decl)
 			local := localNames(decl)
-			for i, line := range doc.List {
-				fields := strings.Fields(strings.TrimPrefix(line.Text, "// "))
-				if len(fields) < 2 || contains(owners, fields[0]) {
-					continue
-				}
-				if !declared[fields[0]] && !local[fields[0]] {
-					continue
-				}
-				// A block OPENS at the first line or right after a blank
-				// comment line; a mid-paragraph mention is ordinary prose.
-				if i == 0 || strings.TrimSpace(doc.List[i-1].Text) == "//" {
-					problems = append(problems, fmt.Sprintf("%s:%d: %v carries the doc comment of %q",
-						path, fset.Position(decl.Pos()).Line, owners, fields[0]))
-				}
+			if len(doc.List) == 0 {
+				continue
+			}
+			fields := strings.Fields(strings.TrimPrefix(doc.List[0].Text, "// "))
+			if len(fields) < 2 || contains(owners, fields[0]) {
+				continue
+			}
+			if declared[fields[0]] || local[fields[0]] {
+				problems = append(problems, fmt.Sprintf("%s:%d: %v carries the doc comment of %q",
+					path, fset.Position(decl.Pos()).Line, owners, fields[0]))
 			}
 		}
 		return nil

@@ -390,6 +390,17 @@ func stop(args []string) error {
 			}
 			return fmt.Errorf("the marker is unreadable and I could not clear it, so whether a daemon is running is unknown; remove %s by hand", where)
 		}
+		// Use what Running() ANSWERED, not just its healing side effect: a
+		// concurrent `serve` can win Claim and write a fresh, valid marker
+		// between the heal and this line, and announcing "not running" would
+		// hand a script a state nobody verified.
+		//
+		// Reported as fixed two rounds ago and it was not: the edit script
+		// aborted before writing and I announced the result anyway.
+		if live, ok := runtime.Running(); ok {
+			fmt.Printf("the unreadable marker was cleared, and lifely (pid %d, owner: %s) registered meanwhile; nothing was stopped\n", live.PID, live.Owner)
+			return errRefused
+		}
 		fmt.Println("the unreadable marker was cleared; lifely is not running")
 		return nil
 	case err != nil:

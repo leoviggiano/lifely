@@ -876,9 +876,19 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 	// Same tiebreak the board keys get: two identical open markers under one
 	// heading are two items, and one must not inherit the other's conversation.
 	seenLifeKeys := map[string]bool{}
+	// Same fence guard as the board and the decision queue: a `#` or an
+	// [ABERTO] inside a shell snippet is code, not a marker.
+	inFence := false
 	for sc.Scan() {
 		line++
 		text := sc.Text()
+		if strings.HasPrefix(strings.TrimSpace(text), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
 		m, rest, ok := openMarker(text)
 		if strings.HasPrefix(text, "#") {
 			heading = strings.TrimSpace(strings.TrimLeft(text, "# "))

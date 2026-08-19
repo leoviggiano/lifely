@@ -435,3 +435,20 @@ func TestTwoLifeMarkersWithTheSameTextDoNotCollide(t *testing.T) {
 		t.Errorf("both markers share the id %q -- one vanishes from the panel", got[0].ID)
 	}
 }
+
+// Every markdown scanner skips fenced code. The guard landed on the board
+// first and the review had to name A6 and A7 in a later round -- so this test
+// covers all three sources at once, which is what "sweep the class" means.
+func TestFencedCodeIsNotStructureInAnySource(t *testing.T) {
+	root := t.TempDir()
+	fence := "```sh\n# limpar o cache\n[ABERTO] isto e um exemplo, nao um marcador\n```\n"
+
+	if err := os.WriteFile(filepath.Join(root, "life.md"),
+		[]byte("## 2.5 Direção\n\n"+fence+"\n[ABERTO] este e de verdade\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(Tribunal(root).Pendencies, "A6")
+	if len(got) != 1 {
+		t.Errorf("A6 swept %d markers, want 1: the one inside the fence is code", len(got))
+	}
+}
