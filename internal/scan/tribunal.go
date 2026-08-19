@@ -481,7 +481,12 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 	// zero -- and "nada pendente" is a result the panel must be able to show.
 	body, err := os.ReadFile(path)
 	if err != nil {
-		state.Err = err.Error()
+		// Same answer the listing above gives: a summary that is not there is
+		// a round in progress, not an unreadable source. It can vanish between
+		// the two calls, and the two must not disagree about what that means.
+		if !os.IsNotExist(err) {
+			state.Err = err.Error()
+		}
 		return nil, state
 	}
 	if !carriesForward(string(body)) {
@@ -540,7 +545,10 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	state := SourceState{Name: "pauta-*.md", Path: root}
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		state.Err = err.Error()
+		// A root with no agenda directory has no agenda: absence, not failure.
+		if !os.IsNotExist(err) {
+			state.Err = err.Error()
+		}
 		return nil, state
 	}
 	var items []pendency.Pendency
