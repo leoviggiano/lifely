@@ -83,9 +83,21 @@ func check(root string) ([]string, error) {
 			// name starts a doc block, and if that name is not this
 			// declaration's, the block belongs to somebody else.
 			owners := declaredNames(decl)
+			// Parameter and receiver names count as WRONG owners.
+			//
+			// The first version knew only file-level declarations, and a doc
+			// opening with a parameter name (`// tool names the binary...` on
+			// func describeExec(tool string, ...)) sailed through -- an
+			// instance of the exact class this program exists to kill, in the
+			// same commit that added the program. A blind spot in a mechanical
+			// check is worse than no check: it is a check that reports clean.
+			local := localNames(decl)
 			for i, line := range doc.List {
 				fields := strings.Fields(strings.TrimPrefix(line.Text, "// "))
-				if len(fields) < 2 || !declared[fields[0]] || contains(owners, fields[0]) {
+				if len(fields) < 2 || contains(owners, fields[0]) {
+					continue
+				}
+				if !declared[fields[0]] && !local[fields[0]] {
 					continue
 				}
 				// A block OPENS at the first line or right after a blank
@@ -99,6 +111,29 @@ func check(root string) ([]string, error) {
 		return nil
 	})
 	return problems, err
+}
+
+// localNames returns the receiver and parameter names of a function, which a
+// doc comment must never open with: Go's convention reserves that position for
+// the name of the thing being documented.
+func localNames(decl ast.Decl) map[string]bool {
+	out := map[string]bool{}
+	fn, ok := decl.(*ast.FuncDecl)
+	if !ok {
+		return out
+	}
+	fields := []*ast.FieldList{fn.Type.Params, fn.Recv}
+	for _, list := range fields {
+		if list == nil {
+			continue
+		}
+		for _, field := range list.List {
+			for _, name := range field.Names {
+				out[name.Name] = true
+			}
+		}
+	}
+	return out
 }
 
 func declaredNames(decl ast.Decl) []string {

@@ -295,7 +295,7 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unkn
 	return strings.Join(parts, " · ")
 }
 
-// tool names the binary that failed. Folding dirtyTree into this function
+// describeExec keeps the tool's own words, naming the binary that failed. Folding dirtyTree into this function
 // (rightly, to keep one owner for "keep the tool's own words") carried ject's
 // name to git's failures: a host without git reported that ject was missing.
 // Deduplicating two things that are only ALMOST the same moves the difference

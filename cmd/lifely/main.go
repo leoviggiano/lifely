@@ -185,19 +185,34 @@ func serve(args []string) error {
 				// forever: Running refuses to call it ours (right) and
 				// refuses to erase it (also right), so the caller has to be
 				// told what actually stands in the way and how to clear it.
-				if stale, perr := runtime.Peek(); perr == nil {
+				// THREE answers, not two. Running() erases a gone or corrupt
+				// marker as a side effect of answering, so by the time we
+				// peek the file may be legitimately absent -- and treating
+				// that as "unreadable" sent the caller after a file that is
+				// no longer there. Absence here means the race resolved
+				// itself and retrying is the honest advice; it is the one
+				// case where "try again" is not a lie.
+				stale, perr := runtime.Peek()
+				switch {
+				case errors.Is(perr, runtime.ErrNoMarker):
+					return fmt.Errorf("another lifely registered and left while I was starting; run `lifely serve` again")
+				case perr == nil:
 					// --owner manual, never `who`: MayStop admits manual
 					// unconditionally, while the owner serve happened to be
 					// called with may be refused by the very guard this hint
 					// is trying to get the caller past. A way out that does
 					// not open is not a way out.
 					return fmt.Errorf("a marker for pid %d is in the way and it is not a lifely daemon; clear it with `lifely stop --force --owner manual`", stale.PID)
+				default:
+					// Unreadable, and not going anywhere on its own: the
+					// caller needs the way out rather than an invitation to
+					// loop.
+					where := "the daemon marker"
+					if path, perr := runtime.Path(); perr == nil {
+						where = path
+					}
+					return fmt.Errorf("a marker is in the way and cannot be read; remove %s by hand", where)
 				}
-				// Peek failed too, so the marker is unreadable rather than
-				// merely foreign. Still not a "try again": the file is not
-				// going anywhere on its own, and the caller needs the way out
-				// rather than an invitation to loop.
-				return fmt.Errorf("a marker is in the way and cannot be read; clear it with `lifely stop --force --owner manual`")
 			}
 			return announceReuse(live, who, fs, *port)
 		}
