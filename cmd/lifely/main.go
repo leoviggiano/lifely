@@ -58,13 +58,13 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `lifely -- painel local de pendências e orquestrador do desenvolvimento
+	fmt.Fprint(os.Stderr, `lifely -- local panel of pending decisions and orchestrator of the work
 
-Uso:
-  lifely serve [--port N] [--owner tribunal|manual]   sobe o painel
+Usage:
+  lifely serve [--port N] [--owner tribunal|manual]   start the panel
   lifely scan [--root DIR]                            sweep and print the board
-  lifely status                                       diz se ha painel de pe
-  lifely stop [--owner tribunal|manual]               derruba o painel
+  lifely status                                       report whether the panel is up
+  lifely stop [--owner tribunal|manual]               stop the panel
 `)
 }
 
@@ -85,7 +85,7 @@ func serve(args []string) error {
 	// scan of the same sources and split the founder's attention between two
 	// URLs. Reuse what is already up and say where it is (spec FR7.4).
 	if live, ok := runtime.Running(); ok {
-		fmt.Printf("lifely ja esta de pe em http://127.0.0.1:%d (dono: %s) -- reusando\n", live.Port, live.Owner)
+		fmt.Printf("lifely is already running at http://127.0.0.1:%d (owner: %s) -- reusing it\n", live.Port, live.Owner)
 		return nil
 	}
 
@@ -116,7 +116,7 @@ func serve(args []string) error {
 		errs <- err
 	}()
 
-	fmt.Printf("lifely servindo em http://127.0.0.1:%d (dono: %s)\n", bound, who)
+	fmt.Printf("lifely serving at http://127.0.0.1:%d (owner: %s)\n", bound, who)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -142,10 +142,10 @@ func parseOwner(owner string) (runtime.Owner, error) {
 func status() error {
 	live, ok := runtime.Running()
 	if !ok {
-		fmt.Println("lifely nao esta de pe")
+		fmt.Println("lifely is not running")
 		return nil
 	}
-	fmt.Printf("lifely de pe em http://127.0.0.1:%d (pid %d, dono: %s, versao %s)\n",
+	fmt.Printf("lifely running at http://127.0.0.1:%d (pid %d, owner: %s, version %s)\n",
 		live.Port, live.PID, live.Owner, live.Version)
 	return nil
 }
@@ -163,7 +163,7 @@ func stop(args []string) error {
 
 	live, ok := runtime.Running()
 	if !ok {
-		fmt.Println("lifely nao esta de pe")
+		fmt.Println("lifely is not running")
 		return nil
 	}
 
@@ -171,12 +171,12 @@ func stop(args []string) error {
 	// founder started by hand (spec FR7.3).
 	if err := live.Stop(asker); err != nil {
 		if err == runtime.ErrNotOwner {
-			fmt.Printf("lifely segue de pe em http://127.0.0.1:%d: %v\n", live.Port, err)
+			fmt.Printf("lifely is still running at http://127.0.0.1:%d: %v\n", live.Port, err)
 			return nil
 		}
 		return err
 	}
-	fmt.Printf("lifely (pid %d, dono: %s) recebeu o pedido de parada\n", live.PID, live.Owner)
+	fmt.Printf("lifely (pid %d, owner: %s) received the stop request\n", live.PID, live.Owner)
 	return nil
 }
 

@@ -280,6 +280,7 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 
 	rel, _ := filepath.Rel(root, path)
 	var header []string
+	row := 0
 	statusAt := -1
 	var items []pendency.Pendency
 
@@ -299,6 +300,7 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 			}
 			continue
 		}
+		row++
 		cells := strings.Split(line, "\t")
 		// A row whose status is empty or missing is NOT decided. Treating it
 		// as terminal would hide a decision that is still waiting -- the exact
@@ -306,7 +308,7 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 		if statusAt < len(cells) && terminal[strings.ToLower(strings.TrimSpace(cells[statusAt]))] {
 			continue
 		}
-		key := naturalKey(header, cells)
+		key := naturalKey(header, cells, rel+":"+strconv.Itoa(row))
 		items = append(items, pendency.Pendency{
 			ID:      pendency.NewID(pendency.Slug(rel), key),
 			Class:   "A2",
@@ -337,7 +339,7 @@ func columnIndex(header []string, name string) int {
 
 // naturalKey prefers the row's own id, which is the most stable key a source
 // can offer (spec FR2.2).
-func naturalKey(header, cells []string) string {
+func naturalKey(header, cells []string, ordinal string) string {
 	if i := columnIndex(header, "id"); i >= 0 && i < len(cells) {
 		if v := strings.TrimSpace(cells[i]); v != "" {
 			return v
@@ -371,11 +373,13 @@ func naturalKey(header, cells []string) string {
 		parts = append(parts, v)
 	}
 	if len(parts) == 0 {
-		// Everything this row says is a status or a date, so there is nothing
-		// stable to key on. Use the row's SHAPE, not its content -- joining
-		// the raw cells here would fold in the very status the invariant
-		// above promises to exclude.
-		return pendency.LocationKey("ledger-row", strconv.Itoa(len(cells)))
+		// Everything this row says is a status or a date: the source gives it
+		// no identity at all. Keying on the row's shape (its cell count) made
+		// every such row collapse into one -- worse than the problem it
+		// replaced. Position is the least-bad answer left: it survives edits
+		// to the row and only moves when lines are inserted above it, and a
+		// row that vanishes is worse than a conversation that moves.
+		return pendency.LocationKey("ledger-row", ordinal)
 	}
 	return pendency.Slug(strings.Join(parts, " "))
 }
