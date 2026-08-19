@@ -229,7 +229,8 @@ func RemoveIfOwn(pid int) error {
 	// Compare the WHOLE marker, not just the pid, and only then delete: between
 	// Read and Remove another daemon can register, and a pid-only check would
 	// still erase a live registration written in that window.
-	return removeIfUnchanged(m)
+	_, err = removeIfUnchanged(m)
+	return err
 }
 
 // Remove clears the marker.

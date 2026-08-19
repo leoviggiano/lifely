@@ -108,7 +108,7 @@ func TestRunningDoesNotClearAMarkerThatChanged(t *testing.T) {
 	}
 
 	// Somebody else replaced the marker while we were probing the stale one.
-	if err := removeIfUnchanged(stale); err != nil {
+	if _, err := removeIfUnchanged(stale); err != nil {
 		t.Fatalf("removeIfUnchanged() = %v", err)
 	}
 
@@ -362,5 +362,53 @@ func TestForceStopRefusesWhenTheAskerDoesNotOwnIt(t *testing.T) {
 	}
 	if _, err := Read(); err != nil {
 		t.Errorf("the refused ForceStop cleared the marker anyway: %v", err)
+	}
+}
+
+// Removal reports what it DID, instead of the caller inferring it from a
+// second read. Between the delete and the re-read another daemon can register,
+// and the caller would announce "nothing was cleared" about a file it cleared.
+func TestRemoveIfUnchangedReportsWhetherItRemoved(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	mine := Marker{PID: os.Getpid(), Port: 7777, Owner: OwnerManual}
+	if err := Write(mine); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := removeIfUnchanged(mine)
+	if err != nil || !removed {
+		t.Fatalf("removeIfUnchanged(own marker) = (%v, %v), want (true, nil)", removed, err)
+	}
+
+	other := Marker{PID: os.Getpid() + 1, Port: 7778, Owner: OwnerTribunal}
+	if err := Write(other); err != nil {
+		t.Fatal(err)
+	}
+	removed, err = removeIfUnchanged(mine)
+	if err != nil || removed {
+		t.Errorf("removeIfUnchanged(stale) = (%v, %v), want (false, nil)", removed, err)
+	}
+	if got, _ := Read(); got != other {
+		t.Error("the other daemon's marker was erased")
+	}
+}
+
+// A pid that is simply gone must not be signalled either: there is no process
+// to stop, and the only thing left to do is clear the marker.
+func TestForceStopOnAGonePidOnlyClears(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	dead := Marker{PID: 999999, Port: 7777, Owner: OwnerManual}
+	if err := Write(dead); err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := dead.ForceStop(OwnerManual)
+	if err != nil {
+		t.Fatalf("ForceStop() = %v", err)
+	}
+	if outcome != ForceCleared {
+		t.Errorf("outcome = %v, want ForceCleared -- a gone pid must not be signalled", outcome)
 	}
 }

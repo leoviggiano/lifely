@@ -169,7 +169,7 @@ func Running() (Marker, bool) {
 		return Marker{}, false
 	}
 	if !m.Live() {
-		if rmErr := removeIfUnchanged(m); rmErr != nil {
+		if _, rmErr := removeIfUnchanged(m); rmErr != nil {
 			fmt.Fprintf(os.Stderr, "lifely: could not clear the orphaned marker: %v\n", rmErr)
 		}
 		return Marker{}, false
@@ -189,18 +189,28 @@ func removeIfCorrupt() error {
 
 // removeIfUnchanged deletes the marker only if it still holds exactly what we
 // read before probing.
-func removeIfUnchanged(seen Marker) error {
+// removeIfUnchanged deletes the marker only if it still holds exactly what we
+// read, and REPORTS whether it removed anything.
+//
+// Callers used to infer that from a second Read(), which answers a different
+// question: between the delete and the re-read another daemon can register,
+// and the caller would report "nothing was cleared" about a file it did clear.
+// Observation beats inference.
+func removeIfUnchanged(seen Marker) (removed bool, err error) {
 	current, err := Read()
 	if errors.Is(err, ErrNoMarker) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if current != seen {
-		return nil
+		return false, nil
 	}
-	return Remove()
+	if err := Remove(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ForceStop signals the pid without confirming identity.
@@ -237,13 +247,14 @@ func (m Marker) ForceStop(asker Owner) (ForceOutcome, error) {
 	// Probe again HERE. The caller decided to force from an error its own
 	// earlier probe returned; narrating the outcome from that stale answer
 	// would report what we expected instead of what happened.
-	if m.probe() == identityForeign {
-		if err := removeIfUnchanged(m); err != nil {
+	// Gone and foreign both mean "do not signal": one has no process at all,
+	// the other has somebody else's. Only the marker is cleared.
+	if id := m.probe(); id == identityForeign || id == identityGone {
+		removed, err := removeIfUnchanged(m)
+		if err != nil {
 			return ForceNothing, err
 		}
-		// removeIfUnchanged returns nil both when it removed the marker and
-		// when it found a different one and left it alone.
-		if _, err := Read(); err == nil {
+		if !removed {
 			return ForceNothing, nil
 		}
 		return ForceCleared, nil
@@ -256,9 +267,15 @@ func (m Marker) ForceStop(asker Owner) (ForceOutcome, error) {
 		return ForceNothing, err
 	}
 	// Clear the marker too: the daemon we just signalled cannot be identified,
-	// so it will not be trusted to clean up after itself. Leaving the file
-	// behind would keep every later `status` reporting a daemon that is gone.
-	return ForceSignalled, removeIfUnchanged(m)
+	// so it will not be trusted to clean up after itself.
+	//
+	// The SIGTERM already landed, so a cleanup failure does not undo it:
+	// report the signal as sent and the cleanup problem as the error, instead
+	// of telling the caller nothing happened.
+	if _, err := removeIfUnchanged(m); err != nil {
+		return ForceSignalled, err
+	}
+	return ForceSignalled, nil
 }
 
 // Stop asks the daemon described by m to shut down, on behalf of asker.
