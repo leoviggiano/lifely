@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -96,7 +97,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	// truncates without saying so is worse than a source that fails.
 	raw, err := run("recent", "--limit", "0", "--json")
 	if err != nil {
-		return nil, []SourceState{{Name: "ject", Err: describeExec(err)}}, graph
+		return nil, []SourceState{{Name: "ject", Err: describeExec("ject", err)}}, graph
 	}
 	var recent struct {
 		Tickets []recentTicket `json:"tickets"`
@@ -114,40 +115,36 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 
 	byProject := map[string]int{}
 	detailErrs := map[string]string{}
-	unvisited := map[string]bool{}
-	budgetErr := ""
+	budgetCut := map[string]int{}
 	var decisionItems []pendency.Pendency
 	decisionCount := 0
+	decisionErr := ""
 
-	for i, t := range recent.Tickets {
+	for _, t := range recent.Tickets {
 		if terminalStatus[t.Status] {
 			continue
 		}
+		// The budget buys DETAIL, not the row. Breaking out of the loop here
+		// dropped every remaining ticket from the panel entirely -- the sweep
+		// went quiet about the majority of the vault while reporting only that
+		// they "were not detailed". The listing is already in hand and cost
+		// nothing; only `ject ticket show` is expensive. So past the deadline
+		// we keep emitting rows and stop paying for their detail.
+		var detail ticketDetail
+		var derr error
 		if time.Now().After(deadline) {
-			// Say what was cut, and count only what would have been shown --
-			// recent.Tickets includes the terminal ones this loop skips.
-			// A truncated sweep that stays quiet is the same failure as the
-			// --limit 20 this file already paid for.
-			left := 0
-			for _, rest := range recent.Tickets[i:] {
-				if !terminalStatus[rest.Status] {
-					left++
-					// And the projects we never reached still get a line, so
-					// they do not vanish from the panel along with the budget.
-					unvisited["ject:"+rest.Project] = true
-				}
-			}
-			budgetErr = fmt.Sprintf("varredura interrompida no orcamento de %s; %d tickets abertos nao foram detalhados", sweepBudget, left)
-			break
+			budgetCut["ject:"+t.Project]++
+			derr = errBudgetSpent
+		} else {
+			detail, derr = showTicket(run, t.ID)
 		}
-		detail, derr := showTicket(run, t.ID)
 		if derr == nil {
 			// Only record a graph edge set we actually read. Storing the zero
 			// value on failure would publish "no dependencies" as a fact, and
 			// the queue computes readiness from this map.
 			graph[t.ID] = detail.Dependencies
 		}
-		if derr != nil {
+		if derr != nil && !errors.Is(derr, errBudgetSpent) {
 			// And it changes the ANSWER, not just the log: a ticket whose
 			// detail we could not read has unknown dependencies, and the queue
 			// must not offer it as ready on the strength of a failed read.
@@ -163,7 +160,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 			Class:   "B",
 			Source:  "ject:" + t.Project,
 			Title:   t.ID + " — " + t.Title,
-			Detail:  ticketDetailLine(t, detail, open),
+			Detail:  ticketDetailLine(t, detail, open, derr != nil, errors.Is(derr, errBudgetSpent)),
 			Blocks:  ticketBlocker(t, detail, open, derr != nil),
 			Origin:  pendency.Origin{Path: detail.Dir, Locator: t.ID, Open: "ject ticket show " + t.ID},
 			Surface: "ject start " + t.ID + " --attached",
@@ -172,36 +169,51 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		byProject["ject:"+t.Project]++
 
 		// A7: the founder's decision queue for this ticket.
-		found := decisions(detail.Dir, t.ID, now)
+		found, decErr := decisions(detail.Dir, t.ID, now, derr == nil)
 		decisionItems = append(decisionItems, found...)
 		decisionCount += len(found)
+		if decErr != "" {
+			if decisionErr != "" {
+				decisionErr += "; "
+			}
+			decisionErr += t.ID + ": " + decErr
+		}
 	}
 
 	items = append(items, decisionItems...)
 	// Deterministic order: Go randomises map iteration, and a panel whose
 	// source list reshuffles on every sweep reads as if something changed.
-	names := make([]string, 0, len(byProject)+len(unvisited))
+	names := make([]string, 0, len(byProject))
 	for name := range byProject {
 		names = append(names, name)
-	}
-	for name := range unvisited {
-		if _, seen := byProject[name]; !seen {
-			names = append(names, name)
-		}
 	}
 	sort.Strings(names)
 	for _, name := range names {
 		st := SourceState{Name: name, Count: byProject[name], Err: detailErrs[name]}
-		if budgetErr != "" {
+		// Only the projects actually cut carry the note, with their own count:
+		// a project swept in full was being labelled "partial" and handed a
+		// number of tickets belonging to someone else.
+		if cut := budgetCut[name]; cut > 0 {
 			if st.Err != "" {
 				st.Err += "; "
 			}
-			st.Err += budgetErr
+			st.Err += fmt.Sprintf("sweep stopped at its %s budget; %d of its open tickets are listed without detail", sweepBudget, cut)
 		}
 		states = append(states, st)
 	}
-	if decisionCount > 0 {
-		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount})
+	if decisionCount > 0 || decisionErr != "" || len(budgetCut) > 0 {
+		// The budget cut applies here too: tickets we never opened may hold
+		// decisions waiting on the founder, so this source under-reports for
+		// the same reason the ject ones do -- and it is the one source where
+		// silence is least affordable.
+		err := decisionErr
+		if cut := len(budgetCut); cut > 0 {
+			if err != "" {
+				err += "; "
+			}
+			err += fmt.Sprintf("the sweep budget was spent; tickets listed without detail in %d project(s) were not read for decisions", cut)
+		}
+		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: err})
 	}
 	return items, states, graph
 }
@@ -215,7 +227,9 @@ func showTicket(run Runner, id string) (ticketDetail, error) {
 	var d ticketDetail
 	raw, err := run("ticket", "show", id, "--json")
 	if err != nil {
-		return d, fmt.Errorf("%s: %w", id, err)
+		// describeExec keeps git/ject's own words; the bare error is only
+		// "exit status 1", which says nothing about what the tool refused on.
+		return d, fmt.Errorf("%s: %s", id, describeExec("ject", err))
 	}
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return d, fmt.Errorf("%s: %w", id, err)
@@ -257,23 +271,46 @@ func unmet(deps []string, open map[string]bool) []string {
 	return out
 }
 
-func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool) string {
+func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unknown, budget bool) string {
 	parts := []string{t.Status, t.Priority}
 	if t.Progress.Total > 0 {
 		parts = append(parts, "checklist "+strconv.Itoa(t.Progress.Done)+"/"+strconv.Itoa(t.Progress.Total))
 	}
 	if t.ActiveSession {
-		parts = append(parts, "sessão ativa")
+		parts = append(parts, "active session")
 	}
 	if blocked := unmet(d.Dependencies, open); len(blocked) > 0 {
-		parts = append(parts, "bloqueado: depende de "+strings.Join(blocked, ", "))
+		parts = append(parts, "blocked: depends on "+strings.Join(blocked, ", "))
+	}
+	switch {
+	case budget:
+		// Never say "could not be read" about a call that was never made: the
+		// founder would go looking for a broken vault instead of a slow one.
+		parts = append(parts, "blocked: not detailed, the sweep budget was spent; dependencies unknown")
+	case unknown:
+		// Say WHY it is held back. A ticket marked `gate` with no reason reads
+		// as a judgement; it is an admission that we could not read its
+		// dependencies.
+		parts = append(parts, "blocked: detail could not be read, dependencies unknown")
 	}
 	return strings.Join(parts, " · ")
 }
 
-func describeExec(err error) string {
+// tool names the binary that failed. Folding dirtyTree into this function
+// (rightly, to keep one owner for "keep the tool's own words") carried ject's
+// name to git's failures: a host without git reported that ject was missing.
+// Deduplicating two things that are only ALMOST the same moves the difference
+// into a parameter -- it does not delete it.
+func describeExec(tool string, err error) string {
 	if _, ok := err.(*exec.Error); ok {
-		return "ject nao esta no PATH -- a fonte ject fica indisponivel"
+		return tool + " is not on PATH -- this source is unavailable"
+	}
+	// Keep what the binary said. Output() puts stderr in ExitError.Stderr and
+	// the bare error is only "exit status 1", which tells the reader nothing
+	// about which invariant the tool refused on.
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		return err.Error() + ": " + strings.TrimSpace(string(ee.Stderr))
 	}
 	return err.Error()
 }
@@ -285,14 +322,36 @@ func describeExec(err error) string {
 // This is the one source read as a file rather than through a command: no ject
 // command returns decisoes.md yet. If one appears, this should use it -- the
 // exception is declared in the spec, not smuggled in here.
-func decisions(dir, ticketID string, now time.Time) []pendency.Pendency {
+// errBudgetSpent marks a row whose detail was never ATTEMPTED. It travels the
+// same path as a failed read because both leave dependencies unknown, but the
+// reason shown to the reader must differ: "could not be read" about a call
+// that was never made sends the founder looking for a broken vault.
+var errBudgetSpent = errors.New("detail not read: the sweep budget was spent")
+
+func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency.Pendency, string) {
 	if dir == "" {
-		return nil
+		if !detailRead {
+			// The detail read already failed and was already reported; saying
+			// it twice would double-count the same blindness.
+			return nil, ""
+		}
+		// The read SUCCEEDED and still gave no directory: we cannot look at
+		// the founder's decision queue, and answering "nothing pending" is the
+		// silence this source can least afford.
+		// Unprefixed, like every other error this function returns: the caller
+		// adds the ticket id, and doing it here too produced "b-1: b-1: ...".
+		return nil, "ticket directory unknown, decision queue not read"
 	}
 	path := filepath.Join(dir, "decisoes.md")
 	f, err := os.Open(path)
 	if err != nil {
-		return nil // no queue for this ticket is the normal case, not a finding
+		if os.IsNotExist(err) {
+			return nil, "" // no queue for this ticket: the normal case
+		}
+		// A decision queue that EXISTS and cannot be read is the worst thing
+		// this scanner can hide: it is the founder's own list, and reporting
+		// "nothing pending" would be a lie with his name on it.
+		return nil, err.Error()
 	}
 	defer f.Close()
 
@@ -312,8 +371,8 @@ func decisions(dir, ticketID string, now time.Time) []pendency.Pendency {
 				// decision surface, and summarising them would decide for him.
 				Detail:  strings.TrimSpace(strings.Join(body, "\n")),
 				Blocks:  pendency.Founder,
-				Origin:  pendency.Origin{Path: path, Locator: id, Open: "obsidian://open?path=" + path},
-				Surface: "a palavra do fundador, no campo Decisão do bloco",
+				Origin:  pendency.Origin{Path: path, Locator: id, Open: obsidianURI(path)},
+				Surface: "the founder\u0027s word, in the block\u0027s Decision field",
 				SeenAt:  now,
 			})
 		}
@@ -341,5 +400,8 @@ func decisions(dir, ticketID string, now time.Time) []pendency.Pendency {
 		body = append(body, line)
 	}
 	flush()
-	return items
+	if err := sc.Err(); err != nil {
+		return items, err.Error()
+	}
+	return items, ""
 }

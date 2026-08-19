@@ -604,10 +604,16 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 
 func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	state := SourceState{Name: "git status", Path: root}
-	// `git -C` resolves UPWARD looking for a repository, so a root that is not
-	// one but sits inside one would report the PARENT's dirty tree as if it
-	// belonged to this source. Ask the filesystem first, and confine git with
-	// a ceiling so it cannot climb even if the check races.
+
+	// Both hardenings are needed and they are independent.
+	//
+	// Confinement: `git -C` resolves UPWARD, so a root that is not a
+	// repository but sits inside one would report the PARENT's dirty tree as
+	// this source's. The ceiling must name the PARENT -- git stops above the
+	// listed directories, so naming `root` would still let it reach `root`.
+	//
+	// Deadline: an earlier commit claimed "a deadline on every subprocess" and
+	// bounded only the ject binary; this sibling was left unbounded.
 	if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr != nil {
 		// Only ABSENCE is normal here. A permission error on .git means we
 		// could not look, and answering "not a repository" would hide it --
@@ -618,15 +624,9 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		}
 		return nil, state
 	}
-	// git gets a deadline too. An earlier commit claimed "a deadline on every
-	// subprocess" and bounded only the ject binary -- the sibling in this very
-	// file was left unbounded.
 	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "status", "--porcelain")
-	// The ceiling must be the PARENT: git stops climbing above the listed
-	// directories, so naming `root` itself lets it reach `root` and keep
-	// going. Naming the parent is what actually confines the search to here.
 	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+filepath.Dir(root))
 	out, err := cmd.Output()
 	if err != nil {
@@ -637,17 +637,7 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		// Unreachable as absence: the guard above already returned for a root
 		// with no .git, so anything failing HERE is git failing on a real
 		// repository, and swallowing it would report a dirty tree as clean.
-		var ee *exec.ExitError
-		stderr := ""
-		if errors.As(err, &ee) {
-			stderr = strings.TrimSpace(string(ee.Stderr))
-		}
-		// Keep git's own words: "exit status 128" alone says nothing about
-		// whether the root is unreadable, or something else entirely.
-		state.Err = err.Error()
-		if stderr != "" {
-			state.Err += ": " + stderr
-		}
+		state.Err = describeExec("git", err)
 		return nil, state
 	}
 	lines := strings.FieldsFunc(string(out), func(r rune) bool { return r == '\n' })

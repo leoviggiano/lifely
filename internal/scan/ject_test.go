@@ -3,6 +3,7 @@ package scan
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +15,15 @@ import (
 // fakeJect answers like the real binary, so the scanner can be tested without
 // a vault -- and so a change in what lifely ASKS for shows up as a test
 // failure rather than as an empty panel.
+// dirOf gives every ticket a directory, as ject does, unless the test asked
+// for a specific one.
+func dirOf(dirs map[string]string, id string, t *testing.T) string {
+	if d, ok := dirs[id]; ok {
+		return d
+	}
+	return t.TempDir()
+}
+
 func fakeJect(t *testing.T, dirs map[string]string) Runner {
 	t.Helper()
 	return func(args ...string) ([]byte, error) {
@@ -35,7 +45,10 @@ func fakeJect(t *testing.T, dirs map[string]string) Runner {
 				deps = []string{"ject-070"}
 			}
 			return json.Marshal(map[string]any{
-				"id": id, "dir": dirs[id], "status": "planning", "dependencies": deps,
+				// A successful `ticket show` always carries a dir. Returning ""
+				// here made the fixture describe a state ject never produces,
+				// and a real anomaly looked like a test failure.
+				"id": id, "dir": dirOf(dirs, id, t), "status": "planning", "dependencies": deps,
 			})
 		}
 		return []byte("{}"), nil
@@ -63,7 +76,7 @@ func TestJectReadsOpenTicketsAndGraph(t *testing.T) {
 	if blocked.Blocks != pendency.Gate {
 		t.Errorf("ject-071 blocks %q, want %q", blocked.Blocks, pendency.Gate)
 	}
-	if !strings.Contains(blocked.Detail, "depende de ject-070") {
+	if !strings.Contains(blocked.Detail, "depends on ject-070") {
 		t.Errorf("the blocked ticket does not name what it waits on: %q", blocked.Detail)
 	}
 	free := byID["ject:ject:ject-070"]
@@ -308,10 +321,55 @@ func TestGraphOmitsTicketsWhoseDetailFailed(t *testing.T) {
 	}
 }
 
-// When the sweep runs out of budget, the projects it never reached still get a
-// line -- otherwise they vanish from the panel exactly when it is least able
-// to explain why. Same failure as the --limit 20, one layer up.
-func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
+// When the sweep runs out of budget the tickets stay ON THE PANEL -- only
+// their detail is missing. The first version of this test asserted that the
+// project LINES survived and never looked at the rows, so it stayed green
+// while the sweep silently dropped ~85 of 90 open tickets: the budget check
+// broke out of the loop before the row was appended. The budget buys detail,
+// never the ticket's existence.
+// The row must name WHICH of the two blindnesses it is under. "could not be
+// read" about a `ticket show` that was never invoked sends the reader after a
+// broken vault when the vault is merely large.
+// The missing-binary sentence must name the binary that is missing. One owner
+// for "keep the tool's own words" is right; one hardcoded NAME inside it is
+// how git's absence came to be reported as ject's.
+func TestDescribeExecNamesTheToolThatFailed(t *testing.T) {
+	_, err := exec.Command("definitely-not-a-real-binary-xyz").Output()
+	if err == nil {
+		t.Skip("the impossible binary exists here")
+	}
+	if got := describeExec("git", err); !strings.Contains(got, "git") {
+		t.Errorf("describeExec(\"git\", ...) = %q, want it to name git", got)
+	}
+	if got := describeExec("git", err); strings.Contains(got, "ject") {
+		t.Errorf("describeExec(\"git\", ...) = %q: it blames ject for git", got)
+	}
+}
+
+func TestBudgetCutSaysBudget_NotUnreadable(t *testing.T) {
+	original := sweepBudget
+	sweepBudget = time.Nanosecond
+	t.Cleanup(func() { sweepBudget = original })
+
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			return []byte(`{"tickets":[{"id":"a-1","project":"alfa","title":"t","status":"ready"}]}`), nil
+		}
+		return nil, nil
+	}
+	items, _, _ := Ject(run, time.Now())
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if strings.Contains(items[0].Detail, "could not be read") {
+		t.Errorf("a ticket never asked about is reported as unreadable: %q", items[0].Detail)
+	}
+	if !strings.Contains(items[0].Detail, "budget") {
+		t.Errorf("the row does not say the budget was spent: %q", items[0].Detail)
+	}
+}
+
+func TestBudgetExhaustionKeepsTicketsListed(t *testing.T) {
 	original := sweepBudget
 	sweepBudget = time.Nanosecond // exhausted before the first ticket
 	t.Cleanup(func() { sweepBudget = original })
@@ -322,10 +380,21 @@ func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
 				{"id":"a-1","project":"alfa","title":"t","status":"ready"},
 				{"id":"b-1","project":"beta","title":"t","status":"ready"}]}`), nil
 		}
+		t.Error("the sweep paid for a ticket detail after its budget was spent")
 		return []byte(`{"id":"a-1","dependencies":[]}`), nil
 	}
 
-	_, states, _ := Ject(run, time.Now())
+	items, states, _ := Ject(run, time.Now())
+
+	listed := map[string]bool{}
+	for _, it := range items {
+		listed[it.Title] = true
+	}
+	for _, want := range []string{"a-1 — t", "b-1 — t"} {
+		if !listed[want] {
+			t.Errorf("%q vanished from the panel when the budget ran out", want)
+		}
+	}
 
 	seen := map[string]string{}
 	for _, s := range states {
@@ -337,8 +406,86 @@ func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
 			t.Errorf("%s vanished from the panel when the budget ran out", want)
 			continue
 		}
-		if !strings.Contains(msg, "interrompida") {
+		if !strings.Contains(msg, "budget") {
 			t.Errorf("%s was listed without saying the sweep was cut: %q", want, msg)
 		}
+	}
+}
+
+// A project swept in FULL must not be labelled partial, and must never be
+// handed a count of tickets belonging to another project. The budget note is
+// per project, because "partial" is a claim about that project's rows.
+func TestBudgetNoteOnlyMarksTheProjectsActuallyCut(t *testing.T) {
+	original := sweepBudget
+	sweepBudget = 50 * time.Millisecond
+	t.Cleanup(func() { sweepBudget = original })
+
+	calls := 0
+	run := func(args ...string) ([]byte, error) {
+		if args[0] == "recent" {
+			return []byte(`{"tickets":[
+				{"id":"a-1","project":"alfa","title":"t","status":"ready"},
+				{"id":"b-1","project":"beta","title":"t","status":"ready"},
+				{"id":"b-2","project":"beta","title":"t","status":"ready"}]}`), nil
+		}
+		calls++
+		if calls == 1 {
+			// alfa is complete, and this detail costs more than the whole
+			// budget -- so the cut lands exactly on beta's first ticket.
+			// The deadline is fixed when the sweep starts, so it has to be
+			// real time that passes here, not a rewritten sweepBudget.
+			time.Sleep(80 * time.Millisecond)
+			return []byte(`{"id":"a-1","dependencies":[]}`), nil
+		}
+		t.Error("the sweep paid for a ticket detail after its budget was spent")
+		return nil, nil
+	}
+
+	_, states, _ := Ject(run, time.Now())
+
+	for _, s := range states {
+		switch s.Name {
+		case "ject:alfa":
+			if s.Err != "" {
+				t.Errorf("alfa was swept in full but reads as partial: %q", s.Err)
+			}
+		case "ject:beta":
+			if !strings.Contains(s.Err, "2 of its open tickets") {
+				t.Errorf("beta must own its own cut count, got %q", s.Err)
+			}
+		}
+	}
+}
+
+// The founder's own decision queue must never disappear quietly.
+//
+// A `decisoes.md` that exists and cannot be read was reported as "no queue for
+// this ticket" -- the panel would say nothing is pending, in his name, about
+// the file that holds what is pending for him.
+func TestUnreadableDecisionQueueIsAFinding(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not block reads")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisoes.md")
+	if err := os.WriteFile(path, []byte("## D1 · algo\n\n**Status:** pendente\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Skipf("cannot make a file unreadable here: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+
+	run := fakeJect(t, map[string]string{"ject-070": dir})
+	_, states, _ := Ject(run, time.Now())
+
+	var reported bool
+	for _, s := range states {
+		if s.Name == "decisoes.md" && s.Err != "" {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Error("an unreadable decision queue was swallowed as 'nothing pending'")
 	}
 }
