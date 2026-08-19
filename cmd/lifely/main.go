@@ -229,11 +229,17 @@ func printSources(sources []scanpkg.SourceState) {
 	}
 	fmt.Print("\nSOURCES\n")
 	for _, s := range sources {
-		if s.Err != "" {
+		// Count AND error: `ledgers *.tsv` aggregates many files, so one
+		// unreadable ledger must not erase the tally of the ones that were
+		// read. Either fact alone leaves the reader with half the picture.
+		switch {
+		case s.Err != "" && s.Count > 0:
+			fmt.Printf("  %s %d (partial -- %s)\n", pad(s.Name, 30), s.Count, s.Err)
+		case s.Err != "":
 			fmt.Printf("  %s UNREADABLE: %s\n", pad(s.Name, 30), s.Err)
-			continue
+		default:
+			fmt.Printf("  %s %d\n", pad(s.Name, 30), s.Count)
 		}
-		fmt.Printf("  %s %d\n", pad(s.Name, 30), s.Count)
 	}
 }
 

@@ -377,16 +377,19 @@ func naturalKey(header, cells []string, ordinal string) string {
 		}
 		parts = append(parts, v)
 	}
-	if len(parts) == 0 {
-		// Everything this row says is a status or a date: the source gives it
-		// no identity at all. Keying on the row's shape (its cell count) made
-		// every such row collapse into one -- worse than the problem it
-		// replaced. Position is the least-bad answer left: it survives edits
-		// to the row and only moves when lines are inserted above it, and a
-		// row that vanishes is worse than a conversation that moves.
-		return pendency.LocationKey("ledger-row", ordinal)
+	// The slug has to be non-empty, not just the parts: a row of punctuation
+	// or emoji survives the filter above and still slugs to nothing, and every
+	// such row would then share one id. Same guard the board identity got --
+	// swept here in the same pass instead of two rounds later.
+	if slug := pendency.Slug(strings.Join(parts, " ")); slug != "" {
+		return slug
 	}
-	return pendency.Slug(strings.Join(parts, " "))
+
+	// Nothing in this row can name it: the source gives it no identity at all.
+	// Position is the least-bad answer left -- it survives edits to the row and
+	// only moves when lines are inserted above it, and a row that vanishes is
+	// worse than a conversation that moves.
+	return pendency.LocationKey("ledger-row", ordinal)
 }
 
 // looksLikeDate spots a timestamp cell, which must never carry identity: it
