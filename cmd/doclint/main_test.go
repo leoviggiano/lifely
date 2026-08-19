@@ -130,16 +130,35 @@ const (
 `,
 	},
 	{
+		// The comment opens with a name the file really declares, so this
+		// fixture only stays quiet while the empty-owner guard in docUnits is
+		// there: an unaliased import owns no name, and without the guard every
+		// first word would belong to somebody else.
 		name: "documented import declares no owner of its own",
 		src: `package fixture
 
 import (
-	// strings is the standard string package.
+	// Trim is the standard string package.
 	"strings"
 )
 
 // Trim trims s.
 func Trim(s string) string { return strings.TrimSpace(s) }
+`,
+	},
+	{
+		name: "doc comment written with a colon after the name",
+		src: `package fixture
+
+// identity is what we could learn about the process behind a marker.
+type identity int
+
+const (
+	// identityGone: no such process, or it is not ours to talk to.
+	identityGone identity = iota
+	// identityOurs: the process is the same program we are.
+	identityOurs
+)
 `,
 	},
 }
@@ -253,6 +272,40 @@ type (
 `,
 		want: 1,
 		says: `"Alpha"`,
+	},
+	{
+		// The style of internal/runtime/live.go:33 and :231. With the colon
+		// attached, the first token matched nothing and every comment in those
+		// blocks read as correct -- coverage that never fires.
+		name: "doc comment written with a colon after the name",
+		src: `package fixture
+
+// identity is what we could learn about the process behind a marker.
+type identity int
+
+const (
+	// identityGone: no such process, or it is not ours to talk to.
+	identityAlive identity = iota
+	identityGone
+)
+`,
+		want: 1,
+		says: `"identityGone"`,
+	},
+	{
+		name: "aliased import owns the name it binds",
+		src: `package fixture
+
+import (
+	// Trim is the standard string package.
+	s "strings"
+)
+
+// Trim trims x.
+func Trim(x string) string { return s.TrimSpace(x) }
+`,
+		want: 1,
+		says: `"Trim"`,
 	},
 }
 

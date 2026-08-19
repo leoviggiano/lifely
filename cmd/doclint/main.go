@@ -103,12 +103,23 @@ func check(root string) ([]string, error) {
 					continue
 				}
 				fields := strings.Fields(strings.TrimPrefix(unit.doc.List[0].Text, "// "))
-				if len(fields) < 2 || contains(unit.owners, fields[0]) {
+				if len(fields) < 2 {
 					continue
 				}
-				if declared[fields[0]] || unit.local[fields[0]] {
+				// The trailing punctuation is stripped because "// Name: prose"
+				// is a style this repo actually uses -- two of the four grouped
+				// const blocks are written that way. Left attached, the first
+				// token matches no declared name and the check reads every one
+				// of those comments as fine: coverage that exists and never
+				// fires is worse than coverage that is absent, because it looks
+				// like a guard.
+				named := strings.TrimRight(fields[0], ":,")
+				if contains(unit.owners, named) {
+					continue
+				}
+				if declared[named] || unit.local[named] {
 					problems = append(problems, fmt.Sprintf("%s:%d: %v carries the doc comment of %q",
-						path, fset.Position(unit.pos).Line, unit.owners, fields[0]))
+						path, fset.Position(unit.pos).Line, unit.owners, named))
 				}
 			}
 		}
@@ -138,9 +149,9 @@ type docUnit struct {
 // Unparenthesised declarations carry the comment on the GenDecl only (go/parser
 // leaves Spec.Doc nil there), so no unit is reported twice.
 //
-// A spec with no name of its own -- a plain import -- yields no unit: with an
-// empty owner set every first word would be somebody else's, and a lint that
-// rejects correct code is worse than no lint.
+// A spec with no name of its own -- a plain, unaliased import -- yields no
+// unit: with an empty owner set every first word would be somebody else's, and
+// a lint that rejects correct code is worse than no lint.
 func docUnits(decl ast.Decl) []docUnit {
 	switch d := decl.(type) {
 	case *ast.FuncDecl:
@@ -166,9 +177,15 @@ func docUnits(decl ast.Decl) []docUnit {
 }
 
 // specDoc returns the doc comment attached to a single spec and the names that
-// spec declares.
+// spec declares. An unaliased import declares no name of its own, so it comes
+// back with an empty set and docUnits drops it.
 func specDoc(spec ast.Spec) (*ast.CommentGroup, []string) {
 	switch s := spec.(type) {
+	case *ast.ImportSpec:
+		if s.Name == nil {
+			return s.Doc, nil
+		}
+		return s.Doc, []string{s.Name.Name}
 	case *ast.TypeSpec:
 		return s.Doc, []string{s.Name.Name}
 	case *ast.ValueSpec:
@@ -186,9 +203,6 @@ func specDoc(spec ast.Spec) (*ast.CommentGroup, []string) {
 // the name of the thing being documented.
 func localNames(fn *ast.FuncDecl) map[string]bool {
 	out := map[string]bool{}
-	if fn == nil {
-		return out
-	}
 	fields := []*ast.FieldList{fn.Type.Params, fn.Recv}
 	for _, list := range fields {
 		if list == nil {
