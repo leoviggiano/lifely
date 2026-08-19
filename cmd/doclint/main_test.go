@@ -162,6 +162,23 @@ const (
 `,
 	},
 	{
+		// An enumeration is not a claim of ownership. Stripping the trailing
+		// comma along with the colon turned this into a build failure for one
+		// gate round.
+		name: "block comment that enumerates names with commas",
+		src: `package fixture
+
+// Gamma is the third mode.
+const Gamma = 3
+
+// Gamma, Alpha and Beta are the modes.
+const (
+	Alpha = 1
+	Beta  = 2
+)
+`,
+	},
+	{
 		// The comment on a driver import names the type that needs the driver,
 		// which is the whole point of writing it. No import spec is an owner.
 		name: "comment on a blank import spec",

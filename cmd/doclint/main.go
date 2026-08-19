@@ -11,12 +11,18 @@
 // that stops running. `go run ./cmd/doclint .` needs exactly what the build
 // already needs.
 //
-// The class it kills: anything slipped between a doc comment and what it
-// documents -- a function above a declaration, or a member above the constant
-// it names inside a const(...)/var(...)/type(...) block (docUnits says how
-// both are reached). Invisible to the compiler, to every test, and to a quick
-// read -- five instances in one night, two from a merge and three from my own
-// edits.
+// The class it kills: something slipped between a doc comment and the TOP-LEVEL
+// declaration it documents -- a function above a declaration, or a member above
+// the constant it names inside a const(...)/var(...)/type(...) block (docUnits
+// says how both are reached). Invisible to the compiler, to every test, and to
+// a quick read -- five instances in one night, two from a merge and three from
+// my own edits.
+//
+// What it does NOT reach, said plainly so the claim above stays honest: doc
+// comments on struct fields and interface methods (ast.Field), which live in a
+// different AST container and are a surface of their own; and a comment above
+// `const (` itself, which Go convention says documents the GROUP, so it owns
+// every name in the block by design.
 package main
 
 import (
@@ -106,14 +112,19 @@ func check(root string) ([]string, error) {
 				if len(fields) < 2 {
 					continue
 				}
-				// The trailing punctuation is stripped because "// Name: prose"
-				// is a style this repo actually uses -- two of the four grouped
-				// const blocks are written that way. Left attached, the first
-				// token matches no declared name and the check reads every one
-				// of those comments as fine: coverage that exists and never
-				// fires is worse than coverage that is absent, because it looks
-				// like a guard.
-				named := strings.TrimRight(fields[0], ":,")
+				// A trailing colon is stripped because "// Name: prose" is a
+				// style this repo actually uses -- two of the four grouped const
+				// blocks are written that way. Left attached, the first token
+				// matches no declared name and the check reads every one of
+				// those comments as fine: coverage that exists and never fires
+				// is worse than coverage that is absent, because it looks like a
+				// guard.
+				//
+				// ONLY the colon. A trailing comma was stripped too for one
+				// round, and it turned "// Gamma, Alpha and Beta are the modes."
+				// into a build failure -- an enumeration is not a claim of
+				// ownership, and this lint has no suppression directive.
+				named := strings.TrimSuffix(fields[0], ":")
 				if contains(unit.owners, named) {
 					continue
 				}
@@ -168,8 +179,8 @@ func docUnits(decl ast.Decl) []docUnit {
 		return []docUnit{{doc: d.Doc, owners: []string{d.Name.Name}, local: localNames(d), pos: d.Pos()}}
 	case *ast.GenDecl:
 		var out []docUnit
-		if d.Doc != nil && len(declaredNames(d)) > 0 {
-			out = append(out, docUnit{doc: d.Doc, owners: declaredNames(d), pos: d.Pos()})
+		if names := declaredNames(d); d.Doc != nil && len(names) > 0 {
+			out = append(out, docUnit{doc: d.Doc, owners: names, pos: d.Pos()})
 		}
 		for _, spec := range d.Specs {
 			doc, names := specDoc(spec)
