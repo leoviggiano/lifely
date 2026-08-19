@@ -404,18 +404,34 @@ func TestAbsentRootIsReportedAsTheRootNotAsALedger(t *testing.T) {
 	}
 }
 
-// A heading at ANY level ends the lane. The reset matched only "## ", so a
-// `# Apêndice` after `## Faixa 1` let everything below it inherit lane 1 and
-// land in the founder's queue.
-func TestAnyHeadingLevelEndsTheLane(t *testing.T) {
-	for _, heading := range []string{"# Apêndice", "### Detalhe", "###### Nota"} {
-		t.Run(heading, func(t *testing.T) {
+// The lane follows document NESTING, which is the rule that stops needing a
+// new answer every time a board grows a section.
+//
+// Three answers were tried in three rounds: reset only on `## ` (a `# Apêndice`
+// then inherited the lane), reset on any heading (a `### Caixa` subsection then
+// demoted its own items), and finally this one -- same level or shallower
+// closes the lane, deeper is inside it.
+func TestLaneEndsAtASiblingHeadingButNotAtASubsection(t *testing.T) {
+	for _, c := range []struct {
+		heading  string
+		stillHis bool
+	}{
+		{"# Apêndice", false},  // shallower: a new top-level section
+		{"## Rodape", false},   // sibling: a new lane-level section
+		{"### Caixa", true},    // deeper: a subsection OF Faixa 1
+		{"#### Detalhe", true}, // deeper still
+	} {
+		t.Run(c.heading, func(t *testing.T) {
 			root := t.TempDir()
 			write(t, filepath.Join(root, "FOUNDER.md"),
-				"## Faixa 1\n\n- [ ] **Dele**\n\n"+heading+"\n\n- [ ] **Fora da faixa**\n")
+				"## Faixa 1\n\n- [ ] **Dele**\n\n"+c.heading+"\n\n- [ ] **Depois**\n")
 			for _, p := range find(Tribunal(root).Pendencies, "A1") {
-				if strings.Contains(p.Title, "Fora da faixa") && p.Blocks == pendency.Founder {
-					t.Errorf("an item under %q inherited lane 1", heading)
+				if !strings.Contains(p.Title, "Depois") {
+					continue
+				}
+				got := p.Blocks == pendency.Founder
+				if got != c.stillHis {
+					t.Errorf("item after %q: founder lane = %v, want %v", c.heading, got, c.stillHis)
 				}
 			}
 		})

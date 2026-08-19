@@ -91,10 +91,17 @@ func Tribunal(root string) Result {
 
 var faixaHeading = regexp.MustCompile(`^##\s+Faixa\s+(\d+)`)
 
-// headingLine is any markdown heading, at any level: the lane reset keys on
-// "a new section started", and a board that uses `#` or `###` says that just
-// as much as one using `##`.
-var headingLine = regexp.MustCompile(`^#{1,6}\s`)
+// headingLine captures a markdown heading and its LEVEL.
+//
+// The lane rule follows document nesting, which is the only answer that does
+// not need reinventing every time a board grows a section: a lane opened by
+// `## Faixa N` ends at the next heading of the SAME level or SHALLOWER, and a
+// DEEPER heading (`### Caixa`) is a subsection of that lane, not a new one.
+//
+// Both previous answers were wrong in opposite directions: resetting only on
+// `## ` let `# Apêndice` inherit the lane, and resetting on any heading
+// demoted every item under a `###` subsection out of its own lane.
+var headingLine = regexp.MustCompile(`^(#{1,6})\s`)
 
 func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	path := filepath.Join(root, "FOUNDER.md")
@@ -114,6 +121,9 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 
 	var items []pendency.Pendency
 	var faixa string
+	// The heading level that opened the current lane, so a deeper heading can
+	// be told from a sibling one.
+	faixaLevel := 0
 	seen := 0
 	// Board keys already emitted, so a repeated title pays position and the
 	// second item does not inherit the first one's conversation.
@@ -135,6 +145,7 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 		if m := faixaHeading.FindStringSubmatch(line); m != nil {
 			flush()
 			faixa = m[1]
+			faixaLevel = len(strings.Split(line, " ")[0])
 			continue
 		}
 		switch {
@@ -174,13 +185,12 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 		case strings.HasPrefix(strings.TrimLeft(line, " \t"), "- [x] "):
 			flush()
 		case headingLine.MatchString(line):
-			// ANY heading ends the lane, at any level. This matched only
-			// `## ` and a `# Apêndice` after `## Faixa 1` let every item
-			// below it inherit lane 1 -- the reset was written for the
-			// heading level the board happens to use, not for what a heading
-			// MEANS. A new section is a new context whatever its depth.
 			flush()
-			faixa = ""
+			// Same level or shallower closes the lane; deeper is inside it.
+			if len(headingLine.FindStringSubmatch(line)[1]) <= faixaLevel {
+				faixa = ""
+				faixaLevel = 0
+			}
 		case current != nil && (strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "\t")):
 			current.Detail += "\n" + line
 		default:
@@ -201,6 +211,15 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 // faixaLocator names where the item sits. An unlaned item used to produce the
 // dangling string "Faixa ", which reached the panel as a location that does
 // not exist.
+// markerLocator names where a life.md marker sits. Before the first heading
+// there is no section, and "":1" is not a location -- it is a colon.
+func markerLocator(heading string, line int) string {
+	if heading == "" {
+		return "line " + strconv.Itoa(line)
+	}
+	return heading + ":" + strconv.Itoa(line)
+}
+
 func faixaLocator(faixa string) string {
 	if faixa == "" {
 		return "outside any Faixa"
@@ -743,7 +762,15 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "status", "--porcelain")
-	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+filepath.Dir(root))
+	// ABSOLUTE, always: git ignores relative entries in GIT_CEILING_DIRECTORIES
+	// entirely, so a relative --root left the ceiling doing nothing and git
+	// free to climb into a parent repository -- the exact escape the ceiling
+	// exists to block.
+	ceiling := filepath.Dir(root)
+	if abs, err := filepath.Abs(ceiling); err == nil {
+		ceiling = abs
+	}
+	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+ceiling)
 	out, err := cmd.Output()
 	if err != nil {
 		// A root that is not a repository has no tree to be dirty: that is
@@ -843,7 +870,7 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 			Title:   plainText(m + " " + excerpt(rest)),
 			Detail:  text,
 			Blocks:  pendency.Founder,
-			Origin:  pendency.Origin{Path: path, Locator: heading + ":" + strconv.Itoa(line), Open: obsidianURI(path)},
+			Origin:  pendency.Origin{Path: path, Locator: markerLocator(heading, line), Open: obsidianURI(path)},
 			Surface: "amend life.md, through the tribunal",
 			SeenAt:  now,
 		})
