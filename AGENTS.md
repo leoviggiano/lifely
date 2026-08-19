@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.22 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.25 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -85,7 +85,16 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      artefato"); coleção viva em tools/erros-comuns.md na bancada.
      v2.22 · 18-08-2026 — erros-comuns POR PROJETO no vault (pedido do
      fundador: específico não infla o geral); funil projeto → casa →
-     checklist, subida por recorrência em 2+ projetos. -->
+     checklist, subida por recorrência em 2+ projetos.
+     v2.23 · 18-08-2026 — "código 100% em inglês" explicitado: logs,
+     erros e strings de saída SÃO código; exceção só para texto de UI
+     do produto (achado do fundador no lifely).
+     v2.24 · 18-08-2026 — a exceção de UI da v2.23 REVOGADA pelo
+     fundador na mesma hora: UI também nasce em inglês, tradução por
+     i18n, fallback SEMPRE inglês; gotr é a candidata registrada.
+     v2.25 · 18-08-2026 — item 1 do checklist estendido: "…e mede a
+     propriedade que você afirma?" (caso medido da sessão ject:
+     grep -c linhas × ocorrências; auto-aplicada, ledger pendente). -->
 
 ## ject — este repositório é rastreado
 
@@ -258,9 +267,17 @@ existe para eliminar.
 - Subagentes spawnados para trabalhar tickets recebem o bloco padrão do
   orquestrador (attach no início; relatório de sessão + `context.md` no fim) —
   subagente não herda esta seção sozinho.
-- Código 100% em inglês; conversa e documentação de produto em pt-BR —
-  português normal de conversa: "você" (nunca "tu vais"), frases curtas e
-  diretas; denso no conteúdo, simples na forma.
+- Código 100% em inglês — **e "código" inclui logs, mensagens de erro,
+  nomes de flags, strings de saída E o texto de interface do produto**
+  (v2.23–v2.24; achados do fundador, 18-08: `fmt.Printf("lifely servindo
+  em…")` e, na sequência, "até mesmo a interface do produto deveria ser
+  em inglês"). **UI nasce em inglês e traduz por i18n; o fallback de
+  tradução ausente é SEMPRE inglês** — nenhuma string pt-BR hardcoded em
+  código, nem de log nem de tela. Candidata registrada da casa para i18n
+  em Go: `gotr` (FOUNDER.md, 12-08 — "adoção formal junto do primeiro
+  backend que precisar"); avalie-a antes de escolher outra. Conversa e
+  documentação de produto em pt-BR — português normal: "você" (nunca "tu
+  vais"), frases curtas e diretas; denso no conteúdo, simples na forma.
 - A bancada da empresa (`~/projects/artifacts`) tem dono único: agente de repo
   NÃO escreve lá — nem template, nem doc. Erro na fonte canônica ou achado que
   precisa da bancada? O canal é mensagem, não escrita: se a sessão da bancada
@@ -323,8 +340,11 @@ existe para eliminar.
   fundador, 18-08 — caso-fonte: sessão citou "build+test verdes" 30 vezes
   para mudanças num arquivo que nenhum teste lê). Cinco perguntas, antes
   de afirmar em relatório ou canal:
-  1. A evidência citada **cobre o artefato mudado**? Verde de suíte que
-     não lê o arquivo é ruído, não sinal.
+  1. A evidência citada **cobre o artefato mudado — e MEDE a propriedade
+     que você afirma**? Verde de suíte que não lê o arquivo é ruído; e
+     instrumento no arquivo certo medindo a grandeza errada idem
+     (caso-fonte v2.25: `grep -c` conta LINHAS — disse "1" com a frase
+     duplicada na mesma linha; ocorrência se conta com `grep -o | wc -l`).
   2. **Mediu, ou está supondo?** "Afirmo alcance sem medir" é a classe
      mais recorrente da casa.
   3. Afirmação de **ausência** ("não está decidido", "não há registro")
