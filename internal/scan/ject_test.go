@@ -342,3 +342,36 @@ func TestBudgetExhaustionKeepsUnvisitedProjectsVisible(t *testing.T) {
 		}
 	}
 }
+
+// The founder's own decision queue must never disappear quietly.
+//
+// A `decisoes.md` that exists and cannot be read was reported as "no queue for
+// this ticket" -- the panel would say nothing is pending, in his name, about
+// the file that holds what is pending for him.
+func TestUnreadableDecisionQueueIsAFinding(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not block reads")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisoes.md")
+	if err := os.WriteFile(path, []byte("## D1 · algo\n\n**Status:** pendente\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Skipf("cannot make a file unreadable here: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+
+	run := fakeJect(t, map[string]string{"ject-070": dir})
+	_, states, _ := Ject(run, time.Now())
+
+	var reported bool
+	for _, s := range states {
+		if s.Name == "decisoes.md" && s.Err != "" {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Error("an unreadable decision queue was swallowed as 'nothing pending'")
+	}
+}

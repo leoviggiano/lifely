@@ -118,6 +118,7 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 	budgetErr := ""
 	var decisionItems []pendency.Pendency
 	decisionCount := 0
+	decisionErr := ""
 
 	for i, t := range recent.Tickets {
 		if terminalStatus[t.Status] {
@@ -172,9 +173,15 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		byProject["ject:"+t.Project]++
 
 		// A7: the founder's decision queue for this ticket.
-		found := decisions(detail.Dir, t.ID, now)
+		found, decErr := decisions(detail.Dir, t.ID, now)
 		decisionItems = append(decisionItems, found...)
 		decisionCount += len(found)
+		if decErr != "" {
+			if decisionErr != "" {
+				decisionErr += "; "
+			}
+			decisionErr += t.ID + ": " + decErr
+		}
 	}
 
 	items = append(items, decisionItems...)
@@ -200,8 +207,8 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		}
 		states = append(states, st)
 	}
-	if decisionCount > 0 {
-		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount})
+	if decisionCount > 0 || decisionErr != "" {
+		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: decisionErr})
 	}
 	return items, states, graph
 }
@@ -285,14 +292,20 @@ func describeExec(err error) string {
 // This is the one source read as a file rather than through a command: no ject
 // command returns decisoes.md yet. If one appears, this should use it -- the
 // exception is declared in the spec, not smuggled in here.
-func decisions(dir, ticketID string, now time.Time) []pendency.Pendency {
+func decisions(dir, ticketID string, now time.Time) ([]pendency.Pendency, string) {
 	if dir == "" {
-		return nil
+		return nil, ""
 	}
 	path := filepath.Join(dir, "decisoes.md")
 	f, err := os.Open(path)
 	if err != nil {
-		return nil // no queue for this ticket is the normal case, not a finding
+		if os.IsNotExist(err) {
+			return nil, "" // no queue for this ticket: the normal case
+		}
+		// A decision queue that EXISTS and cannot be read is the worst thing
+		// this scanner can hide: it is the founder's own list, and reporting
+		// "nothing pending" would be a lie with his name on it.
+		return nil, err.Error()
 	}
 	defer f.Close()
 
@@ -341,5 +354,8 @@ func decisions(dir, ticketID string, now time.Time) []pendency.Pendency {
 		body = append(body, line)
 	}
 	flush()
-	return items
+	if err := sc.Err(); err != nil {
+		return items, err.Error()
+	}
+	return items, ""
 }
