@@ -31,6 +31,12 @@ func main() {
 		if errors.Is(err, errRefused) {
 			os.Exit(3)
 		}
+		// flag.ContinueOnError already wrote the message and the usage to
+		// stderr; printing it again under "lifely:" says the same thing twice
+		// and buries the usage between two copies of one sentence.
+		if errors.Is(err, flag.ErrHelp) || alreadyReported(err) {
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, "lifely:", err)
 		os.Exit(1)
 	}
@@ -75,7 +81,8 @@ func serve(args []string) error {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
-		return err
+		// Wrapped so main does not print what flag already printed.
+		return &flagParseError{err}
 	}
 
 	who, err := parseOwner(*owner)
@@ -117,6 +124,16 @@ func serve(args []string) error {
 	}
 	bound := listener.Addr().(*net.TCPAddr).Port
 
+	// Every path below that returns without serving must give the port back:
+	// the reuse announcement told the caller to use the daemon that IS up, and
+	// holding its port hostage would make the next honest `serve` fail to bind.
+	claimed := false
+	defer func() {
+		if !claimed {
+			_ = listener.Close()
+		}
+	}()
+
 	if err := runtime.Claim(runtime.Marker{
 		PID:     os.Getpid(),
 		Port:    bound,
@@ -152,6 +169,7 @@ func serve(args []string) error {
 		}
 		return fmt.Errorf("registering the daemon: %w", err)
 	}
+	claimed = true
 	// Only ever clear our own registration (see RemoveIfOwn).
 	defer func() { _ = runtime.RemoveIfOwn(os.Getpid()) }()
 
@@ -176,6 +194,14 @@ func serve(args []string) error {
 		return err
 	case <-signals:
 	}
+
+	// Deregister BEFORE draining. Shutdown closes the listener first and then
+	// waits for in-flight requests, and for those seconds the marker still
+	// advertised a panel that refuses every new connection -- `status` would
+	// print a URL nothing answers, and `serve` would reuse a dying daemon
+	// instead of starting a live one. The deferred RemoveIfOwn stays: it is
+	// the guard for every OTHER exit path, and removing twice is harmless.
+	_ = runtime.RemoveIfOwn(os.Getpid())
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -262,7 +288,8 @@ func stop(args []string) error {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
-		return err
+		// Wrapped so main does not print what flag already printed.
+		return &flagParseError{err}
 	}
 	// No guessing, ever. A TTY on stdin does not prove a person is typing --
 	// cron, CI and a tribunal hook can all have one -- and the comment right
@@ -415,6 +442,22 @@ func markerReadable() error {
 	}
 	return nil
 }
+
+// alreadyReported says whether the flag package has already put this error in
+// front of the user. There is no sentinel for a parse failure -- the package
+// returns a bare errors.New -- so the check is on the parser having spoken,
+// which is exactly what ContinueOnError guarantees.
+func alreadyReported(err error) bool {
+	var parse *flagParseError
+	return errors.As(err, &parse)
+}
+
+// flagParseError wraps what fs.Parse returned so main can tell "the flags were
+// wrong, and the flag package said so" from every other failure.
+type flagParseError struct{ err error }
+
+func (e *flagParseError) Error() string { return e.err.Error() }
+func (e *flagParseError) Unwrap() error { return e.err }
 
 // errRefused reports a stop deliberately not performed. It exits non-zero so a
 // script can tell refusal from success; the reason is already printed.
