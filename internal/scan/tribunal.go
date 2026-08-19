@@ -145,7 +145,10 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 		if m := faixaHeading.FindStringSubmatch(line); m != nil {
 			flush()
 			faixa = m[1]
-			faixaLevel = len(strings.Split(line, " ")[0])
+			// From the regex, not from a space split: faixaHeading accepts any
+			// whitespace (`\s`), so `##\tFaixa 1` broke the split and left the
+			// level at 0, which reopened the leak this level was added to fix.
+			faixaLevel = len(headingLine.FindStringSubmatch(line)[1])
 			continue
 		}
 		switch {
@@ -205,12 +208,6 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 	return items, state
 }
 
-// faixaBlocker maps a board lane to whose move it is. Faixa 1 is the founder's
-// own agenda; 2 and 3 are the agents' -- though the verdict on Faixa 2 still
-// ends up being his, which the panel says out loud (spec FR2.3).
-// faixaLocator names where the item sits. An unlaned item used to produce the
-// dangling string "Faixa ", which reached the panel as a location that does
-// not exist.
 // markerLocator names where a life.md marker sits. Before the first heading
 // there is no section, and "":1" is not a location -- it is a colon.
 func markerLocator(heading string, line int) string {
@@ -220,6 +217,9 @@ func markerLocator(heading string, line int) string {
 	return heading + ":" + strconv.Itoa(line)
 }
 
+// faixaLocator names where the item sits. An unlaned item used to produce the
+// dangling string "Faixa ", which reached the panel as a location that does
+// not exist.
 func faixaLocator(faixa string) string {
 	if faixa == "" {
 		return "outside any Faixa"
@@ -227,6 +227,9 @@ func faixaLocator(faixa string) string {
 	return "Faixa " + faixa
 }
 
+// faixaBlocker maps a board lane to whose move it is. Faixa 1 is the founder's
+// own agenda; 2 and 3 are the agents' -- though the verdict on Faixa 2 still
+// ends up being his, which the panel says out loud (spec FR2.3).
 func faixaBlocker(faixa string) pendency.Blocker {
 	switch faixa {
 	case "1":
@@ -273,6 +276,16 @@ func boardID(faixa, title string, ordinal int) string {
 	return "f" + faixa + "-" + pendency.LocationKey("board-line", strconv.Itoa(ordinal))
 }
 
+// uniqueBoardID is boardID plus the tiebreak, kept apart so boardID stays a
+// pure function of the row and only the collision pays position.
+//
+// It lives HERE, after boardKey, and not between boardID's doc comment and
+// boardID -- inserting it there orphaned that comment onto the wrong symbol,
+// the same defect the merge produced two rounds ago.
+func uniqueBoardID(faixa, title string, ordinal int, seen map[string]bool) string {
+	return uniqueKey(boardID(faixa, title, ordinal), ordinal, seen)
+}
+
 // boardKey returns the part of a board line that names the item.
 //
 // Same rule the ledger identity follows, stated once for both: key on what the
@@ -288,16 +301,6 @@ func boardID(faixa, title string, ordinal int) string {
 // there applies verbatim here: an item that vanishes from the panel is a
 // decision the founder never sees, which is worse than a conversation that
 // moves. Same problem, so the same answer.
-// uniqueBoardID is boardID plus the tiebreak, kept apart so boardID stays a
-// pure function of the row and only the collision pays position.
-//
-// It lives HERE, after boardKey, and not between boardID's doc comment and
-// boardID -- inserting it there orphaned that comment onto the wrong symbol,
-// the same defect the merge produced two rounds ago.
-func uniqueBoardID(faixa, title string, ordinal int, seen map[string]bool) string {
-	return uniqueKey(boardID(faixa, title, ordinal), ordinal, seen)
-}
-
 func boardKey(line string) string {
 	// Only the bold that OPENS the item counts. Taking any bold run in the
 	// line would key `- [ ] fazer X — **urgente** hoje` on "urgente", and two
@@ -766,10 +769,14 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	// entirely, so a relative --root left the ceiling doing nothing and git
 	// free to climb into a parent repository -- the exact escape the ceiling
 	// exists to block.
-	ceiling := filepath.Dir(root)
-	if abs, err := filepath.Abs(ceiling); err == nil {
+	// Resolve FIRST, then take the parent. Computing Dir on the raw string
+	// made `--root .` yield "." and `--root x/` yield "x", so the ceiling
+	// pointed at the root itself (or below it) and git climbed right past.
+	ceiling := root
+	if abs, err := filepath.Abs(root); err == nil {
 		ceiling = abs
 	}
+	ceiling = filepath.Dir(filepath.Clean(ceiling))
 	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+ceiling)
 	out, err := cmd.Output()
 	if err != nil {
