@@ -569,15 +569,23 @@ func printSources(sources []scanpkg.SourceState) {
 		// Count AND error: `ledgers *.tsv` aggregates many files, so one
 		// unreadable ledger must not erase the tally of the ones that were
 		// read. Either fact alone leaves the reader with half the picture.
+		// A source can carry BOTH: one project whose ticket detail failed AND
+		// whose sweep was cut short. Printing only one of them dropped the
+		// other silently -- the exact "either fact alone leaves the reader
+		// with half the picture" this function was written to avoid.
+		note := ""
+		if s.Note != "" {
+			note = " (partial -- " + s.Note + ")"
+		}
 		switch {
-		case s.Note != "" && s.Err == "":
+		case s.Err == "" && note != "":
 			// Read, not exhausted. Distinct from UNREADABLE on purpose: this
 			// one does not make the sweep incomplete-by-failure.
-			fmt.Printf("  %s %d (partial -- %s)\n", pad(s.Name, 30), s.Count, s.Note)
+			fmt.Printf("  %s %d%s\n", pad(s.Name, 30), s.Count, note)
 		case s.Err != "" && s.Count > 0:
-			fmt.Printf("  %s %d (partial -- %s)\n", pad(s.Name, 30), s.Count, s.Err)
+			fmt.Printf("  %s %d (partial -- %s)%s\n", pad(s.Name, 30), s.Count, s.Err, note)
 		case s.Err != "":
-			fmt.Printf("  %s UNREADABLE: %s\n", pad(s.Name, 30), s.Err)
+			fmt.Printf("  %s UNREADABLE: %s%s\n", pad(s.Name, 30), s.Err, note)
 		default:
 			fmt.Printf("  %s %d\n", pad(s.Name, 30), s.Count)
 		}

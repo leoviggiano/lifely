@@ -287,8 +287,15 @@ func TestFaixaDoesNotLeakAcrossSections(t *testing.T) {
 - [ ] **Item de outra secao**
 `)
 	for _, p := range find(Tribunal(root).Pendencies, "A1") {
-		if strings.Contains(p.Title, "outra secao") && p.Blocks == pendency.Founder {
-			t.Error("an item outside a Faixa inherited the founder lane")
+		if !strings.Contains(p.Title, "outra secao") {
+			continue
+		}
+		// Not Founder (the lane must not leak into a non-Faixa section) and
+		// not AI either (that hid the line from the person whose board it is).
+		// Unlaned is unclassified, and unclassified on a board built out of
+		// lanes is hygiene.
+		if p.Blocks != pendency.Hygiene {
+			t.Errorf("an item outside a Faixa was routed to %q, want hygiene", p.Blocks)
 		}
 	}
 }

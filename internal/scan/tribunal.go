@@ -192,15 +192,27 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 // own agenda; 2 and 3 are the agents' -- though the verdict on Faixa 2 still
 // ends up being his, which the panel says out loud (spec FR2.3).
 func faixaBlocker(faixa string) pendency.Blocker {
-	if faixa == "1" {
+	switch faixa {
+	case "1":
 		return pendency.Founder
+	case "":
+		// No lane at all: an item before the first `## Faixa`, or under a
+		// heading that is not one. TWO guards disagreed here and both were
+		// right: sending it to AI hid an item the founder wrote on his own
+		// board, and sending it to Founder let a `## Rodape` checkbox into his
+		// decision queue.
+		//
+		// Neither, then. The blocker answers "who is this waiting on?", and
+		// for an unlaned line the honest answer is "nobody knows" -- which on
+		// a board whose whole convention is lanes is itself a tidying job. It
+		// stays VISIBLE (the failure of the AI branch) without claiming a
+		// decision is pending (the failure of the Founder branch).
+		return pendency.Hygiene
+	default:
+		return pendency.AI
 	}
-	return pendency.AI
 }
 
-// boardID builds the A1 identity, falling back to position when the title
-// slugs to nothing: a line made only of punctuation or emoji would otherwise
-// key on the empty string and collapse with every other such line.
 // uniqueKey is the tiebreak both marker sweeps use: a key already emitted in
 // this file pays its position, and only that one.
 //
@@ -215,6 +227,9 @@ func uniqueKey(id string, ordinal int, seen map[string]bool) string {
 	return id
 }
 
+// boardID builds the A1 identity, falling back to position when the title
+// slugs to nothing: a line made only of punctuation or emoji would otherwise
+// key on the empty string and collapse with every other such line.
 func boardID(faixa, title string, ordinal int) string {
 	if slug := pendency.Slug(boardKey(title)); slug != "" {
 		return "f" + faixa + "-" + slug
