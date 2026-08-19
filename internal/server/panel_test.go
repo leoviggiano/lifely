@@ -56,13 +56,13 @@ func TestListAndFilters(t *testing.T) {
 		t.Error("the answer does not say when it was swept")
 	}
 
-	_, founder := get(t, h, "/api/pendencies?who=fundador")
+	_, founder := get(t, h, "/api/pendencies?who=founder")
 	if founder["count"].(float64) != 2 {
-		t.Errorf("who=fundador gave %v, want 2", founder["count"])
+		t.Errorf("who=founder gave %v, want 2", founder["count"])
 	}
-	_, ai := get(t, h, "/api/pendencies?who=ia")
+	_, ai := get(t, h, "/api/pendencies?who=ai")
 	if ai["count"].(float64) != 0 {
-		t.Errorf("who=ia gave %v, want 0", ai["count"])
+		t.Errorf("who=ai gave %v, want 0", ai["count"])
 	}
 	_, byClass := get(t, h, "/api/pendencies?class=A2")
 	if byClass["count"].(float64) != 1 {
@@ -102,9 +102,13 @@ func TestUnknownPendencyIsGoneNotBroken(t *testing.T) {
 // a source is a finding, never silence (spec NFR6).
 func TestSourcesReportTheUnreadable(t *testing.T) {
 	p := fixture(t)
-	if err := os.Remove(filepath.Join(p.Root, "FOUNDER.md")); err != nil {
+	// UNREADABLE, not absent: absence is normal and reports nothing (the
+	// SourceState contract). This test removed the file and still demanded a
+	// finding -- the same drift its sibling in internal/scan already paid for.
+	if err := os.Chmod(filepath.Join(p.Root, "FOUNDER.md"), 0o000); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(p.Root, "FOUNDER.md"), 0o644) })
 	_, body := get(t, New(7777, "manual", p), "/api/sources")
 
 	var marked bool

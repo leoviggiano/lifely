@@ -4,7 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/leoviggiano/lifely/internal/pendency"
 )
@@ -47,7 +49,8 @@ Texto normal sem marcador.
 [ABERTO] teto percentual emendaria o §15.1?
 `)
 	write(t, filepath.Join(root, "pauta-ferramentas.md"), "pauta\n")
-	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"), "resumo\n")
+	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"),
+		"# Sessao\n\n## Pendente\n\nfalta o veredito do fundador.\n")
 	return root
 }
 
@@ -115,10 +118,19 @@ func TestTsvWithoutStatusIsIgnored(t *testing.T) {
 // A source that exists and cannot be read is a finding, not silence -- and it
 // must not take the other sources down with it (spec FR1.3).
 func TestUnreadableSourceIsReportedNotFatal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not block reads")
+	}
 	root := house(t)
-	if err := os.Remove(filepath.Join(root, "FOUNDER.md")); err != nil {
+	// UNREADABLE, not absent. This test removed the file and still checked for
+	// a finding -- asserting the opposite of the contract above it, and of the
+	// absence-vs-failure rule the rest of this scanner is built on. The
+	// root-skip guard at the top was the tell: it only means anything for a
+	// permission scenario, which is what the name always promised.
+	if err := os.Chmod(filepath.Join(root, "FOUNDER.md"), 0o000); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "FOUNDER.md"), 0o644) })
 	res := Tribunal(root)
 
 	var reported bool
@@ -132,6 +144,21 @@ func TestUnreadableSourceIsReportedNotFatal(t *testing.T) {
 	}
 	if len(find(res.Pendencies, "A2")) == 0 {
 		t.Error("one broken source silenced the others")
+	}
+}
+
+// A source that simply is not there is NOT a finding: absence is normal, and
+// marking it teaches the reader to ignore the one marker that should always
+// mean something.
+func TestAbsentSourceIsNotAFinding(t *testing.T) {
+	root := house(t)
+	if err := os.Remove(filepath.Join(root, "FOUNDER.md")); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range Tribunal(root).Sources {
+		if s.Name == "FOUNDER.md" && s.Err != "" {
+			t.Errorf("an absent FOUNDER.md was reported as unreadable: %q", s.Err)
+		}
 	}
 }
 
@@ -172,7 +199,7 @@ func TestOpenMarkerIgnoresMentions(t *testing.T) {
 		"3. [PROPOSTA] promover a decisao",
 	}
 	for _, line := range raises {
-		if _, ok := openMarker(line); !ok {
+		if _, _, ok := openMarker(line); !ok {
 			t.Errorf("openMarker(%q) = false, want true", line)
 		}
 	}
@@ -184,7 +211,7 @@ func TestOpenMarkerIgnoresMentions(t *testing.T) {
 		"Promoção de [PROPOSTA] exige veredito explicito",
 	}
 	for _, line := range mentions {
-		if _, ok := openMarker(line); ok {
+		if _, _, ok := openMarker(line); ok {
 			t.Errorf("openMarker(%q) = true, want false -- that is a mention, not an item", line)
 		}
 	}
@@ -199,5 +226,146 @@ func TestLifeMarkerTitleIsNotDoubled(t *testing.T) {
 	}
 	if want := "[ABERTO] teto percentual emendaria o §15.1?"; got[0].Title != want {
 		t.Errorf("title = %q, want %q", got[0].Title, want)
+	}
+}
+
+// Titles here are accented Portuguese. Cutting by bytes lands inside a
+// multi-byte rune and renders as a replacement character -- visible in the
+// real sweep output before the gate named it.
+func TestTruncationCutsRunesNotBytes(t *testing.T) {
+	long := strings.Repeat("ç", 200)
+	for name, got := range map[string]string{
+		"excerpt": excerpt(long),
+	} {
+		if strings.ContainsRune(got, '\uFFFD') {
+			t.Errorf("%s produced a broken rune", name)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("%s produced invalid utf-8", name)
+		}
+	}
+}
+
+// A ledger row whose status cell is empty or missing is NOT decided: hiding a
+// decision that is still waiting is the failure this scanner refuses.
+func TestEmptyStatusCountsAsOpen(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"), "# id\ttitulo\tstatus\nX1\tsem status\t\nX2\ttruncada\n")
+	got := find(Tribunal(root).Pendencies, "A2")
+	if len(got) != 2 {
+		t.Fatalf("got %d open rows, want 2 (empty and missing status are both open)", len(got))
+	}
+}
+
+// The panel must be able to reach zero: "nada pendente" is a result. A summary
+// that closed clean is not a pendency.
+func TestCleanSummaryIsNotAPendency(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"),
+		"# Sessao\n\n## Entregue\n\nTudo fechado.\n")
+	if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 0 {
+		t.Errorf("a summary with nothing open produced %d pendencies", len(got))
+	}
+
+	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"),
+		"# Sessao\n\n## Pendente\n\nfalta o veredito.\n")
+	if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 1 {
+		t.Errorf("a summary that carries something forward produced %d pendencies, want 1", len(got))
+	}
+}
+
+// An item under a heading that is not a Faixa must not inherit the previous
+// lane's blocker.
+func TestFaixaDoesNotLeakAcrossSections(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"), `## Faixa 1
+
+- [ ] **Decidir E18**
+
+## Rodape
+
+- [ ] **Item de outra secao**
+`)
+	for _, p := range find(Tribunal(root).Pendencies, "A1") {
+		if strings.Contains(p.Title, "outra secao") && p.Blocks == pendency.Founder {
+			t.Error("an item outside a Faixa inherited the founder lane")
+		}
+	}
+}
+
+// A broken ledger must say WHICH file broke, and must not erase the report of
+// another one that broke before it.
+func TestLedgerErrorNamesTheFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not block reads")
+	}
+	root := t.TempDir()
+	write(t, filepath.Join(root, "bom.tsv"), "# id\tstatus\nA\tpendente\n")
+	bad := filepath.Join(root, "ruim.tsv")
+	write(t, bad, "# id\tstatus\n")
+	if err := os.Chmod(bad, 0o000); err != nil {
+		t.Skipf("cannot make a file unreadable here: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bad, 0o644) })
+
+	var reported string
+	for _, s := range Tribunal(root).Sources {
+		if s.Name == "ledgers *.tsv" {
+			reported = s.Err
+		}
+	}
+	if !strings.Contains(reported, "ruim.tsv") {
+		t.Errorf("the ledger error did not name the file: %q", reported)
+	}
+}
+
+// The marker must not be printed twice, including when the line opens with a
+// bullet or a quote -- stripping it from the raw text silently fails there.
+func TestLifeMarkerTitleNotDoubledWithBullets(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "life.md"),
+		"# life\n\n- [ABERTO] teto percentual?\n> [PROPOSTA] corrigir 15.6 para 15.7\n")
+	for _, p := range find(Tribunal(root).Pendencies, "A6") {
+		marker, _, _ := openMarker(p.Title)
+		if strings.Count(p.Title, marker) != 1 {
+			t.Errorf("title %q repeats the marker", p.Title)
+		}
+	}
+}
+
+// A ledger status written naturally, with accents, must still count as decided.
+func TestTerminalStatusWithAccents(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"), "# id\ttitulo\tstatus\nA\tfeita\tconcluída\nB\taberta\tpendente\n")
+	got := find(Tribunal(root).Pendencies, "A2")
+	if len(got) != 1 {
+		t.Fatalf("got %d open rows, want 1 -- an accented terminal status was read as open", len(got))
+	}
+}
+
+// Obsidian percent-decodes the path parameter, so a space has to arrive as
+// %20. QueryEscape sends "+", which the app reads literally and fails to open.
+func TestObsidianURIEncodesSpacesAsPercent20(t *testing.T) {
+	got := obsidianURI("/Users/leo/my life be life/nota com acento é.md")
+	if strings.Contains(got, "+") {
+		t.Errorf("the URI carries a literal plus: %q", got)
+	}
+	if !strings.Contains(got, "%20") {
+		t.Errorf("the space was not percent-encoded: %q", got)
+	}
+}
+
+// A stray directory under sessions/ must not win the "most recent round" pick.
+func TestLatestSummaryIgnoresNonDateDirectories(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "sessions", "2026-08-18", "summary.md"), "## Pendente\n\nfalta o veredito.\n")
+	write(t, filepath.Join(root, "sessions", "zzz-rascunho", "summary.md"), "## Pendente\n\nlixo.\n")
+
+	got := find(Tribunal(root).Pendencies, "A3")
+	if len(got) != 1 {
+		t.Fatalf("got %d summaries, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Source, "2026-08-18") {
+		t.Errorf("the stray directory won the pick: %q", got[0].Source)
 	}
 }

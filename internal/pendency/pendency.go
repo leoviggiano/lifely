@@ -20,13 +20,13 @@ type Blocker string
 
 const (
 	// Founder marks a decision only the founder can make.
-	Founder Blocker = "fundador"
+	Founder Blocker = "founder"
 	// Gate marks work waiting on a gate or another ticket.
 	Gate Blocker = "gate"
 	// AI marks work an agent is meant to carry.
-	AI Blocker = "ia"
+	AI Blocker = "ai"
 	// Hygiene marks tidying: dirty trees, stale files, late records.
-	Hygiene Blocker = "higiene"
+	Hygiene Blocker = "hygiene"
 )
 
 // rank orders the groups by what blocks the founder first. The panel is an
@@ -56,8 +56,6 @@ type Pendency struct {
 	Origin  Origin
 	Surface string
 	SeenAt  time.Time
-	Unread  bool
-	ReadErr string
 }
 
 var slugCleaner = regexp.MustCompile(`[^a-z0-9]+`)

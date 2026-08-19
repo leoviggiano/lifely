@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -465,10 +466,14 @@ func scanCmd(args []string) error {
 	res, _ := scanpkg.All(*root, scanpkg.CLI)
 	if len(res.Pendencies) == 0 {
 		fmt.Println("Nothing pending. The sources were swept just now and nothing is waiting on a decision. Zero is a result.")
+		// Zero pendencies must never hide a source that could not be read:
+		// "nothing pending" would then mean "we did not look", and the empty
+		// screen is exactly where nobody goes looking for a failure (NFR6).
+		printSources(res.Sources)
 		return nil
 	}
 
-	fmt.Printf("%d pendencias · varrido as %s\n", len(res.Pendencies), res.At.Format("15:04"))
+	fmt.Printf("%d pendencies · swept at %s\n", len(res.Pendencies), res.At.Format("15:04"))
 	for _, g := range []pendency.Blocker{pendency.Founder, pendency.Gate, pendency.AI, pendency.Hygiene} {
 		var inGroup []pendency.Pendency
 		for _, p := range res.Pendencies {
@@ -481,26 +486,39 @@ func scanCmd(args []string) error {
 		}
 		fmt.Printf("\n%s (%d)\n", groupLabel[g], len(inGroup))
 		for _, p := range inGroup {
-			fmt.Printf("  %-48s %s\n", trim(p.Title, 48), p.Source)
+			fmt.Printf("  %s %s\n", pad(trim(p.Title, 48), 48), p.Source)
 		}
 	}
 
-	fmt.Print("\nFONTES\n")
-	for _, s := range res.Sources {
-		if s.Err != "" {
-			fmt.Printf("  %-30s ILEGIVEL: %s\n", s.Name, s.Err)
-			continue
-		}
-		fmt.Printf("  %-30s %d\n", s.Name, s.Count)
-	}
+	printSources(res.Sources)
 	return nil
 }
 
+func printSources(sources []scanpkg.SourceState) {
+	if len(sources) == 0 {
+		return
+	}
+	fmt.Print("\nSOURCES\n")
+	for _, s := range sources {
+		// Count AND error: `ledgers *.tsv` aggregates many files, so one
+		// unreadable ledger must not erase the tally of the ones that were
+		// read. Either fact alone leaves the reader with half the picture.
+		switch {
+		case s.Err != "" && s.Count > 0:
+			fmt.Printf("  %s %d (partial -- %s)\n", pad(s.Name, 30), s.Count, s.Err)
+		case s.Err != "":
+			fmt.Printf("  %s UNREADABLE: %s\n", pad(s.Name, 30), s.Err)
+		default:
+			fmt.Printf("  %s %d\n", pad(s.Name, 30), s.Count)
+		}
+	}
+}
+
 var groupLabel = map[pendency.Blocker]string{
-	pendency.Founder: "ESPERANDO O FUNDADOR",
-	pendency.Gate:    "GATES ESPERANDO RESPOSTA",
-	pendency.AI:      "IA PREPARA",
-	pendency.Hygiene: "HIGIENE",
+	pendency.Founder: "WAITING ON THE FOUNDER",
+	pendency.Gate:    "GATES AWAITING AN ANSWER",
+	pendency.AI:      "AI PREPARES",
+	pendency.Hygiene: "HYGIENE",
 }
 
 func defaultRoot() string {
@@ -511,11 +529,26 @@ func defaultRoot() string {
 	return filepath.Join(home, "projects", "artifacts")
 }
 
+// pad widens a string to n columns counting runes.
+//
+// %-48s pads to a BYTE count, so an accented title -- which this command goes
+// out of its way to truncate by rune -- still comes out misaligned: 20 runes
+// of 25 bytes get 23 spaces instead of 28.
+func pad(s string, n int) string {
+	if d := n - len([]rune(s)); d > 0 {
+		return s + strings.Repeat(" ", d)
+	}
+	return s
+}
+
+// trim truncates by runes, never by bytes: the sources are accented Portuguese,
+// and a byte slice lands mid-rune and prints a replacement character.
 func trim(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return string(r[:n-1]) + "…"
 }
 
 // alreadyReported says whether the flag package has already put this error in
