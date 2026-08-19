@@ -313,8 +313,14 @@ func stop(args []string) error {
 		switch {
 		case *force && live.MayStop(asker):
 			outcome, ferr := live.ForceStop(asker)
-			if ferr != nil {
+			if ferr != nil && outcome == runtime.ForceNothing {
 				return ferr
+			}
+			if ferr != nil {
+				// The action landed and the cleanup did not. Report BOTH:
+				// returning only the error would tell the caller nothing
+				// happened, about a signal that was already delivered.
+				fmt.Fprintf(os.Stderr, "lifely: %v\n", ferr)
 			}
 			// Narrate what force DID, not what the earlier probe expected:
 			// ForceStop probes again and reports its own outcome, and the two
@@ -324,7 +330,11 @@ func stop(args []string) error {
 			case runtime.ForceNothing:
 				fmt.Printf("the marker for pid %d changed under us; nothing was done\n", live.PID)
 			case runtime.ForceCleared:
-				fmt.Printf("marker for pid %d cleared (--force); the process %s and is still running\n", live.PID, what)
+				// Do not repeat `what` here: it came from the probe BEFORE the
+				// force, and ForceCleared covers both "somebody else's" and
+				// "gone". Say only what is certain -- the marker is gone and
+				// nothing of ours was signalled.
+				fmt.Printf("marker for pid %d cleared (--force); no daemon of ours was there, and nothing was signalled\n", live.PID)
 			default:
 				fmt.Printf("SIGTERM sent to pid %d (--force); the process %s\n", live.PID, what)
 			}

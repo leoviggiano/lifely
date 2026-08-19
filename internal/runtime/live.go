@@ -225,12 +225,20 @@ type ForceOutcome int
 const (
 	// ForceSignalled: a SIGTERM was sent to the process.
 	ForceSignalled ForceOutcome = iota
-	// ForceCleared: the marker was removed and no process was signalled.
+	// ForceCleared: the marker was removed and no process was signalled --
+	// either the pid was gone, or it belonged to another program.
 	ForceCleared
 	// ForceNothing: the marker changed under us and nothing was done.
 	ForceNothing
 )
 
+// ForceStop acts on a marker whose process could not be identified, or that
+// belongs to somebody else.
+//
+// It is the escape hatch for the pid we cannot vouch for, and it relaxes
+// IDENTITY only -- never ownership, which is checked first. It probes again
+// itself, so its outcome describes what happened rather than what the caller
+// expected when it decided to force.
 func (m Marker) ForceStop(asker Owner) (ForceOutcome, error) {
 	// Its own ownership guard, not just the caller's: Stop has one, and an
 	// API where the escape hatch is the unguarded twin invites exactly the
