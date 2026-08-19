@@ -91,6 +91,11 @@ func Tribunal(root string) Result {
 
 var faixaHeading = regexp.MustCompile(`^##\s+Faixa\s+(\d+)`)
 
+// headingLine is any markdown heading, at any level: the lane reset keys on
+// "a new section started", and a board that uses `#` or `###` says that just
+// as much as one using `##`.
+var headingLine = regexp.MustCompile(`^#{1,6}\s`)
+
 func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	path := filepath.Join(root, "FOUNDER.md")
 	state := SourceState{Name: "FOUNDER.md", Path: path}
@@ -161,17 +166,19 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				Title:   plainText(title),
 				Detail:  title,
 				Blocks:  faixaBlocker(faixa),
-				Origin:  pendency.Origin{Path: path, Locator: "Faixa " + faixa, Open: obsidianURI(path)},
+				Origin:  pendency.Origin{Path: path, Locator: faixaLocator(faixa), Open: obsidianURI(path)},
 				Surface: "verdict in FOUNDER.md",
 				SeenAt:  now,
 			}
 			current = &p
 		case strings.HasPrefix(strings.TrimLeft(line, " \t"), "- [x] "):
 			flush()
-		case strings.HasPrefix(line, "## "):
-			// A section that is not a Faixa ends the lane too: without this,
-			// items under an unrelated heading inherit the previous lane's
-			// blocker and land in the wrong group.
+		case headingLine.MatchString(line):
+			// ANY heading ends the lane, at any level. This matched only
+			// `## ` and a `# Apêndice` after `## Faixa 1` let every item
+			// below it inherit lane 1 -- the reset was written for the
+			// heading level the board happens to use, not for what a heading
+			// MEANS. A new section is a new context whatever its depth.
 			flush()
 			faixa = ""
 		case current != nil && (strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "\t")):
@@ -191,6 +198,16 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 // faixaBlocker maps a board lane to whose move it is. Faixa 1 is the founder's
 // own agenda; 2 and 3 are the agents' -- though the verdict on Faixa 2 still
 // ends up being his, which the panel says out loud (spec FR2.3).
+// faixaLocator names where the item sits. An unlaned item used to produce the
+// dangling string "Faixa ", which reached the panel as a location that does
+// not exist.
+func faixaLocator(faixa string) string {
+	if faixa == "" {
+		return "outside any Faixa"
+	}
+	return "Faixa " + faixa
+}
+
 func faixaBlocker(faixa string) pendency.Blocker {
 	switch faixa {
 	case "1":

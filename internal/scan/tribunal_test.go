@@ -403,3 +403,21 @@ func TestAbsentRootIsReportedAsTheRootNotAsALedger(t *testing.T) {
 		t.Errorf("got %d pendencies from a root that does not exist", len(res.Pendencies))
 	}
 }
+
+// A heading at ANY level ends the lane. The reset matched only "## ", so a
+// `# Apêndice` after `## Faixa 1` let everything below it inherit lane 1 and
+// land in the founder's queue.
+func TestAnyHeadingLevelEndsTheLane(t *testing.T) {
+	for _, heading := range []string{"# Apêndice", "### Detalhe", "###### Nota"} {
+		t.Run(heading, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, filepath.Join(root, "FOUNDER.md"),
+				"## Faixa 1\n\n- [ ] **Dele**\n\n"+heading+"\n\n- [ ] **Fora da faixa**\n")
+			for _, p := range find(Tribunal(root).Pendencies, "A1") {
+				if strings.Contains(p.Title, "Fora da faixa") && p.Blocks == pendency.Founder {
+					t.Errorf("an item under %q inherited lane 1", heading)
+				}
+			}
+		})
+	}
+}

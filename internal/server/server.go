@@ -76,7 +76,14 @@ func New(port int, owner string, panel *Panel) http.Handler {
 // LoopbackOnly rejects requests whose Host header is not a loopback name.
 //
 // Binding to 127.0.0.1 alone does not stop a page served by another site from
-// pointing a request at the port through the browser; checking Host does.
+// pointing a request at the port through the browser; checking Host raises the
+// bar.
+//
+// What it does NOT do, stated because the previous wording overclaimed: a page
+// on another origin can still CAUSE the request (a form post, an <img>), it
+// simply cannot read the reply -- no CORS header is sent. For a read-only API
+// that is enough. It stops being enough the moment FR14 adds the write path,
+// and a same-origin token belongs in that ticket, not in a comment here.
 func LoopbackOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isLoopbackHost(r.Host) {
