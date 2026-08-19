@@ -591,3 +591,73 @@ func TestDecidedBlockStaysOutOfTheQueue(t *testing.T) {
 		t.Errorf("got %d decisions, want 0 -- a decided block came back to the queue", len(got))
 	}
 }
+
+// The read failure comes BEFORE the fence, joined with "; ". bufio.ErrTooLong
+// truncates the file, and an "unclosed" fence is its symptom: announcing the
+// symptom first, or alone, sends the reader hunting for a backtick that
+// exists. A7 reported the fence before consulting the scanner error.
+// (defect D1)
+func TestDecisionsReportTheReadBeforeTheFence(t *testing.T) {
+	dir := t.TempDir()
+	huge := strings.Repeat("x", 8*1024*1024+1)
+	body := "## D1 · gigante\n\n**Status:** pendente\n\n```sh\n" + huge + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, errStr := decisions(dir, "lifely-028", time.Now(), true)
+	readAt := strings.Index(errStr, "too long")
+	fenceAt := strings.Index(errStr, "never closed")
+	if readAt < 0 {
+		t.Fatalf("the read failure vanished behind the fence: %q", errStr)
+	}
+	if fenceAt < 0 {
+		t.Fatalf("the unclosed fence was not reported: %q", errStr)
+	}
+	if readAt > fenceAt {
+		t.Errorf("the fence is announced before the read failure that caused it: %q", errStr)
+	}
+	if !strings.Contains(errStr, "; ") {
+		t.Errorf("the two failures are not joined with %q: %q", "; ", errStr)
+	}
+}
+
+// A7's fence guard, direction one: fenced markdown is content, never
+// structure -- a `## Dx` inside a snippet must not open a block, a fenced
+// `**Status:**` must not decide the real one, and the snippet still travels
+// whole inside the body, because the block is the founder's decision surface.
+// (defect D3: A7 had no fence test in either direction)
+func TestDecisionsFenceIsContentNotStructure(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · real\n\n**Status:** pendente\n\n```markdown\n## D9 · exemplo\n**Status:** decidido\n```\n\n**Decisão:** —\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, errStr := decisions(dir, "lifely-028", time.Now(), true)
+	if errStr != "" {
+		t.Fatalf("decisions() reported %q", errStr)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d decisions, want 1 -- the fenced example was read as structure", len(got))
+	}
+	if !strings.Contains(got[0].Detail, "## D9 · exemplo") {
+		t.Errorf("the fenced snippet did not travel whole in the body: %q", got[0].Detail)
+	}
+}
+
+// A7's fence guard, direction two: a fence that never closes is a FINDING,
+// never silence -- everything after it stopped being read as structure, and
+// the founder's queue must say so. (defect D3)
+func TestDecisionsUnclosedFenceIsAFinding(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · real\n\n**Status:** pendente\n\n```sh\n# nunca fecha\n\n## D2 · perdida\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, errStr := decisions(dir, "lifely-028", time.Now(), true)
+	if !strings.Contains(errStr, "never closed") {
+		t.Errorf("an unclosed fence in the decision queue was not reported: %q", errStr)
+	}
+	if len(got) != 1 {
+		t.Errorf("got %d decisions, want 1 -- the block read before the fence must survive", len(got))
+	}
+}
