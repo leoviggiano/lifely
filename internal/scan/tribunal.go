@@ -579,6 +579,13 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	// Deadline: an earlier commit claimed "a deadline on every subprocess" and
 	// bounded only the ject binary; this sibling was left unbounded.
 	if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr != nil {
+		// Only ABSENCE is normal here. A permission error on .git means we
+		// could not look, and answering "not a repository" would hide it --
+		// the same confusion between absence and failure this scanner keeps
+		// paying for.
+		if !os.IsNotExist(statErr) {
+			state.Err = statErr.Error()
+		}
 		return nil, state
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
@@ -591,11 +598,9 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		// normal absence, the same call the summary makes, and reporting it as
 		// UNREADABLE trains the reader to ignore the marker that should always
 		// mean something.
-		// Ask the filesystem, not git's prose: git ships translated messages,
-		// so matching "not a git repository" breaks under any other locale.
-		if _, statErr := os.Stat(filepath.Join(root, ".git")); os.IsNotExist(statErr) {
-			return nil, state
-		}
+		// Unreachable as absence: the guard above already returned for a root
+		// with no .git, so anything failing HERE is git failing on a real
+		// repository, and swallowing it would report a dirty tree as clean.
 		state.Err = describeExec(err)
 		return nil, state
 	}

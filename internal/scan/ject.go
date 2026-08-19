@@ -324,7 +324,9 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 		// The read SUCCEEDED and still gave no directory: we cannot look at
 		// the founder's decision queue, and answering "nothing pending" is the
 		// silence this source can least afford.
-		return nil, ticketID + ": ticket directory unknown, decision queue not read"
+		// Unprefixed, like every other error this function returns: the caller
+		// adds the ticket id, and doing it here too produced "b-1: b-1: ...".
+		return nil, "ticket directory unknown, decision queue not read"
 	}
 	path := filepath.Join(dir, "decisoes.md")
 	f, err := os.Open(path)
