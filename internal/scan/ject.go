@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -207,8 +208,19 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		}
 		states = append(states, st)
 	}
-	if decisionCount > 0 || decisionErr != "" {
-		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: decisionErr})
+	if decisionCount > 0 || decisionErr != "" || budgetErr != "" {
+		// The budget cut applies here too: tickets we never opened may hold
+		// decisions waiting on the founder, so this source under-reports for
+		// the same reason the ject ones do -- and it is the one source where
+		// silence is least affordable.
+		err := decisionErr
+		if budgetErr != "" {
+			if err != "" {
+				err += "; "
+			}
+			err += budgetErr
+		}
+		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: err})
 	}
 	return items, states, graph
 }
@@ -281,6 +293,13 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool) stri
 func describeExec(err error) string {
 	if _, ok := err.(*exec.Error); ok {
 		return "ject is not on PATH -- the ject source is unavailable"
+	}
+	// Keep what the binary said. Output() puts stderr in ExitError.Stderr and
+	// the bare error is only "exit status 1", which tells the reader nothing
+	// about which invariant the tool refused on.
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		return err.Error() + ": " + strings.TrimSpace(string(ee.Stderr))
 	}
 	return err.Error()
 }
