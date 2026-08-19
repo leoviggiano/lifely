@@ -16,15 +16,30 @@ verdade vive nos arquivos do tribunal, no ject e no store do Claude.
 ```sh
 go build ./cmd/lifely
 ./lifely serve            # http://127.0.0.1:7777
+./lifely status           # diz se o painel está de pé, e onde
+./lifely stop             # pede o fecho do painel
+./lifely scan             # varre as fontes e imprime o quadro no terminal
 ```
 
 O servidor escuta **só em loopback** e recusa requisição cujo `Host` não seja
 um nome de loopback: uma página de outro site não alcança a porta pelo
 navegador. Não há autenticação, e não deve haver.
 
+Só existe **uma instância**: `serve` com o painel já de pé não sobe um
+segundo — reusa o que está rodando e diz a URL.
+
 O `/tribunal` sobe o painel no início da sessão e o derruba no fim — mas
-**só derruba a instância que ele mesmo subiu**. Servidor iniciado à mão
-sobrevive ao fecho da sessão.
+**só derruba a instância que ele mesmo subiu** (`stop --owner tribunal`).
+Servidor iniciado à mão sobrevive ao fecho da sessão.
+
+## Varrer sem o painel
+
+`lifely scan` faz a mesma varredura que o painel e imprime o resultado: as
+pendências agrupadas por quem bloqueia e, depois, o estado de cada fonte —
+fonte que existe e não pôde ser lida sai **marcada**, nunca some, inclusive
+quando não há nenhuma pendência. O repo do tribunal vem de `--root` (padrão
+`~/projects/artifacts`); os tickets vêm do binário `ject` no `PATH` — sem ele,
+a fonte `ject` aparece ilegível, não vazia.
 
 ## Desenvolvimento
 
