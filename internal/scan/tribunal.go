@@ -371,7 +371,11 @@ func naturalKey(header, cells []string) string {
 		parts = append(parts, v)
 	}
 	if len(parts) == 0 {
-		return pendency.LocationKey("ledger-row", strings.Join(cells, "\t"))
+		// Everything this row says is a status or a date, so there is nothing
+		// stable to key on. Use the row's SHAPE, not its content -- joining
+		// the raw cells here would fold in the very status the invariant
+		// above promises to exclude.
+		return pendency.LocationKey("ledger-row", strconv.Itoa(len(cells)))
 	}
 	return pendency.Slug(strings.Join(parts, " "))
 }
@@ -569,7 +573,10 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 		return nil, state
 	}
 	cmd := exec.Command("git", "-C", root, "status", "--porcelain")
-	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+root)
+	// The ceiling must be the PARENT: git stops climbing above the listed
+	// directories, so naming `root` itself lets it reach `root` and keep
+	// going. Naming the parent is what actually confines the search to here.
+	cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+filepath.Dir(root))
 	out, err := cmd.Output()
 	if err != nil {
 		// A root that is not a repository has no tree to be dirty: that is
