@@ -312,18 +312,20 @@ func stop(args []string) error {
 		}
 		switch {
 		case *force && live.MayStop(asker):
-			ferr := live.ForceStop(asker)
-			if ferr != nil && !errors.Is(ferr, runtime.ErrChanged) {
+			outcome, ferr := live.ForceStop(asker)
+			if ferr != nil {
 				return ferr
 			}
-			// The two cases do different things and the caller has to know
-			// which: for a pid we identified as somebody else's, only the
-			// marker is cleared; for a pid we could not identify, a SIGTERM
-			// is sent. Merging the branches was right; merging the message
-			// hid a signal behind the word "limpeza".
-			if errors.Is(err, runtime.ErrForeign) {
+			// Narrate what force DID, not what the earlier probe expected:
+			// ForceStop probes again and reports its own outcome, and the two
+			// paths differ in a way the caller has to know -- one clears a
+			// marker, the other kills a process.
+			switch outcome {
+			case runtime.ForceNothing:
+				fmt.Printf("the marker for pid %d changed under us; nothing was done\n", live.PID)
+			case runtime.ForceCleared:
 				fmt.Printf("marker for pid %d cleared (--force); the process %s and is still running\n", live.PID, what)
-			} else {
+			default:
 				fmt.Printf("SIGTERM sent to pid %d (--force); the process %s\n", live.PID, what)
 			}
 			return nil

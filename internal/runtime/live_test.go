@@ -333,7 +333,7 @@ func TestForceStopNeverSignalsAnIdentifiedStranger(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := m.ForceStop(OwnerManual); err != nil {
+	if _, err := m.ForceStop(OwnerManual); err != nil {
 		t.Fatalf("ForceStop() = %v", err)
 	}
 	// The marker is gone...
@@ -357,7 +357,7 @@ func TestForceStopRefusesWhenTheAskerDoesNotOwnIt(t *testing.T) {
 	if err := Write(m); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.ForceStop(OwnerTribunal); err != ErrNotOwner {
+	if _, err := m.ForceStop(OwnerTribunal); err != ErrNotOwner {
 		t.Errorf("tribunal ForceStop over a manual daemon = %v, want ErrNotOwner", err)
 	}
 	if _, err := Read(); err != nil {

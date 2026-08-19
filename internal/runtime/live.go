@@ -177,9 +177,6 @@ func Running() (Marker, bool) {
 	return m, true
 }
 
-// isCorrupt separates "this file cannot be parsed" from "I could not read it
-// right now". Only the first is healed; the second is transient, and healing
-// it would delete a perfectly good marker over a passing error.
 // removeIfCorrupt re-reads and deletes only while the file is still
 // unparseable: between our read and this one another daemon may have written a
 // perfectly good marker, and that one is not ours to erase.
@@ -212,12 +209,24 @@ func removeIfUnchanged(seen Marker) error {
 // otherwise an unidentifiable marker would be permanently unstoppable. Behind
 // an explicit flag on purpose: signalling a process you cannot identify is a
 // last resort, not a fallback.
-func (m Marker) ForceStop(asker Owner) error {
+// ForceOutcome says what ForceStop actually did.
+type ForceOutcome int
+
+const (
+	// ForceSignalled: a SIGTERM was sent to the process.
+	ForceSignalled ForceOutcome = iota
+	// ForceCleared: the marker was removed and no process was signalled.
+	ForceCleared
+	// ForceNothing: the marker changed under us and nothing was done.
+	ForceNothing
+)
+
+func (m Marker) ForceStop(asker Owner) (ForceOutcome, error) {
 	// Its own ownership guard, not just the caller's: Stop has one, and an
 	// API where the escape hatch is the unguarded twin invites exactly the
 	// mistake the hatch was fenced against in the command layer.
 	if !m.MayStop(asker) {
-		return ErrNotOwner
+		return ForceNothing, ErrNotOwner
 	}
 	// NEVER signal a process we have identified as somebody else's.
 	//
@@ -225,29 +234,31 @@ func (m Marker) ForceStop(asker Owner) error {
 	// looked and decided. For a pid we CAN identify as foreign, signalling is
 	// the exact bug this package spends four functions preventing -- so the
 	// force path only clears the stale marker and leaves the stranger alone.
+	// Probe again HERE. The caller decided to force from an error its own
+	// earlier probe returned; narrating the outcome from that stale answer
+	// would report what we expected instead of what happened.
 	if m.probe() == identityForeign {
 		if err := removeIfUnchanged(m); err != nil {
-			return err
+			return ForceNothing, err
 		}
 		// removeIfUnchanged returns nil both when it removed the marker and
-		// when it found a different one and left it alone. Say which happened,
-		// so the caller is not told "cleared" about a file still on disk.
+		// when it found a different one and left it alone.
 		if _, err := Read(); err == nil {
-			return ErrChanged
+			return ForceNothing, nil
 		}
-		return nil
+		return ForceCleared, nil
 	}
 	proc, err := os.FindProcess(m.PID)
 	if err != nil {
-		return err
+		return ForceNothing, err
 	}
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		return err
+		return ForceNothing, err
 	}
 	// Clear the marker too: the daemon we just signalled cannot be identified,
 	// so it will not be trusted to clean up after itself. Leaving the file
 	// behind would keep every later `status` reporting a daemon that is gone.
-	return removeIfUnchanged(m)
+	return ForceSignalled, removeIfUnchanged(m)
 }
 
 // Stop asks the daemon described by m to shut down, on behalf of asker.
