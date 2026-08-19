@@ -559,3 +559,35 @@ func TestTwoDecisionBlocksWithTheSameIdDoNotCollide(t *testing.T) {
 		t.Errorf("both blocks share the id %q -- one vanishes from the founder's queue", got[0].ID)
 	}
 }
+
+// A decision block with NO status line at all must still reach the founder.
+// The exclusion rule lived only in statusIsPending while the caller stayed
+// inclusion-based (pendingBlock started false and needed an exact
+// `**Status:**` line), so such a block vanished before any rule ran.
+func TestDecisionBlockWithoutAStatusLineIsStillListed(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · sem status\n\nO fundador escreveu o bloco e nao pos status.\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, errStr := decisions(dir, "lifely-001", time.Now(), true)
+	if errStr != "" {
+		t.Fatalf("decisions() reported %q", errStr)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d decisions, want 1 -- a block with no status vanished", len(got))
+	}
+}
+
+// And a block the founder DECIDED must not come back.
+func TestDecidedBlockStaysOutOfTheQueue(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · resolvida\n\n**Status:** ✅ aprovado, fundador, 18-08-2026\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := decisions(dir, "lifely-001", time.Now(), true)
+	if len(got) != 0 {
+		t.Errorf("got %d decisions, want 0 -- a decided block came back to the queue", len(got))
+	}
+}

@@ -499,6 +499,15 @@ func scanCmd(args []string) error {
 	// must never be the answer to "I never looked".
 	unread := countUnreadable(res.Sources)
 	incomplete := sweepIncomplete(res.Sources)
+	// Counted apart from `unread` on purpose: a budget cut is not a failure
+	// and must NOT reach the exit code -- but it does mean the board is not
+	// whole, and the headline is where "not whole" has to be visible.
+	partial := 0
+	for _, s := range res.Sources {
+		if s.Note != "" {
+			partial++
+		}
+	}
 
 	if len(res.Pendencies) == 0 {
 		if incomplete {
@@ -513,10 +522,17 @@ func scanCmd(args []string) error {
 
 	// The count leads, and the gap in it leads with it: a reader who stops at
 	// the first line must not walk away believing the board is whole.
-	if unread > 0 {
+	switch {
+	case unread > 0 && partial > 0:
+		fmt.Printf("%d pendencies · swept at %s · INCOMPLETE: %d source(s) could not be read, %d cut short\n",
+			len(res.Pendencies), res.At.Format("15:04"), unread, partial)
+	case unread > 0:
 		fmt.Printf("%d pendencies · swept at %s · INCOMPLETE: %d source(s) could not be read\n",
 			len(res.Pendencies), res.At.Format("15:04"), unread)
-	} else {
+	case partial > 0:
+		fmt.Printf("%d pendencies · swept at %s · PARTIAL: %d source(s) were cut short by the sweep budget\n",
+			len(res.Pendencies), res.At.Format("15:04"), partial)
+	default:
 		fmt.Printf("%d pendencies · swept at %s\n", len(res.Pendencies), res.At.Format("15:04"))
 	}
 	for _, g := range []pendency.Blocker{pendency.Founder, pendency.Gate, pendency.AI, pendency.Hygiene} {

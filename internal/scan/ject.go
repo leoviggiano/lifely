@@ -384,7 +384,13 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 	var items []pendency.Pendency
 	var id, title string
 	var body []string
-	pendingBlock := false
+	// Exclusion at the FLOW, not only in statusIsPending. This started as
+	// `pendingBlock := false`, flipped true only by an exact `**Status:**`
+	// line -- so a block with NO status line never reached the predicate at
+	// all and vanished from the founder's queue before any rule applied.
+	// Changing the leaf to exclusion while the caller stayed inclusion is the
+	// same "fixed the instance, not the class" this file keeps paying for.
+	pendingBlock := true
 	// The third and last site of this class. All eight NewID call sites were
 	// swept before this fix: ticket ids, summary directories, agenda filenames
 	// and the git marker are unique by construction; A1, A6 and A7 are the
@@ -409,7 +415,7 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 				SeenAt:  now,
 			})
 		}
-		id, title, body, pendingBlock = "", "", nil, false
+		id, title, body, pendingBlock = "", "", nil, true
 	}
 
 	sc := bufio.NewScanner(f)
