@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -171,5 +172,47 @@ func TestConcurrentSweepsDoNotSerialize(t *testing.T) {
 	// Serialised, this would cost callers*slow. In parallel it costs about one.
 	if elapsed := time.Since(start); elapsed > slow*time.Duration(callers-1) {
 		t.Errorf("%d concurrent sweeps took %v: they queued behind the lock", callers, elapsed)
+	}
+}
+
+// Neither queue nor stampede: concurrent callers share ONE sweep.
+//
+// Holding the lock across the scan made them queue; releasing it entirely made
+// them all shell out at once. The first caller sweeps and the rest wait on the
+// same result.
+func TestConcurrentSweepsShareOneScan(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "FOUNDER.md"), []byte("## Faixa 1\n\n- [ ] **algo**\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var scans int64
+	p := NewPanel(root, func(args ...string) ([]byte, error) {
+		atomic.AddInt64(&scans, 1)
+		time.Sleep(80 * time.Millisecond)
+		return []byte(`{"tickets":[]}`), nil
+	})
+	p.TTL = 0 // the cache must not be what saves us here
+
+	const callers = 5
+	start := time.Now()
+	var wg sync.WaitGroup
+	results := make([]*snapshot, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(i int) { defer wg.Done(); results[i] = p.sweep() }(i)
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt64(&scans); got != 1 {
+		t.Errorf("%d callers caused %d scans, want 1", callers, got)
+	}
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Errorf("the callers queued instead of sharing: %v", elapsed)
+	}
+	for i, r := range results {
+		if r != results[0] {
+			t.Errorf("caller %d got a different snapshot than caller 0", i)
+		}
 	}
 }

@@ -24,6 +24,7 @@ type Panel struct {
 	TTL  time.Duration
 
 	mu       sync.Mutex
+	inflight *sweepFlight
 	cached   *snapshot
 	cachedAt time.Time
 	now      func() time.Time
@@ -41,32 +42,44 @@ func NewPanel(root string, run scan.Runner) *Panel {
 
 // sweep returns a fresh view, or the one from a moment ago.
 func (p *Panel) sweep() *snapshot {
-	// The lock guards the cache, never the scan.
+	// One sweep at a time, and nobody waits behind the lock.
 	//
-	// Holding it across scan.All meant every concurrent request queued behind
-	// a multi-second sweep that walks the record repo and shells out per
-	// ticket -- one slow source and the whole panel stops answering, including
-	// /healthz-style reads that need nothing from it.
+	// Holding p.mu across scan.All made every request queue behind a
+	// multi-second walk. Releasing it entirely traded that for a stampede:
+	// N concurrent requests each shelling out per ticket. So: the first caller
+	// sweeps, the others wait on the SAME sweep and share its result.
 	p.mu.Lock()
 	if p.cached != nil && p.now().Sub(p.cachedAt) < p.TTL {
 		defer p.mu.Unlock()
 		return p.cached
 	}
+	if p.inflight != nil {
+		wait := p.inflight
+		p.mu.Unlock()
+		<-wait.done
+		return wait.snap
+	}
+	flight := &sweepFlight{done: make(chan struct{})}
+	p.inflight = flight
 	p.mu.Unlock()
 
 	res, graph := scan.All(p.Root, p.Run)
-	fresh := &snapshot{Result: res, Graph: graph}
+	flight.snap = &snapshot{Result: res, Graph: graph}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	// Another request may have swept while we were out of the lock. Either
-	// answer is honest -- both were computed just now -- so keep the one
-	// already published and let this one go.
-	if p.cached != nil && p.now().Sub(p.cachedAt) < p.TTL {
-		return p.cached
-	}
-	p.cached, p.cachedAt = fresh, p.now()
-	return fresh
+	p.cached, p.cachedAt = flight.snap, p.now()
+	p.inflight = nil
+	p.mu.Unlock()
+
+	close(flight.done)
+	return flight.snap
+}
+
+// sweepFlight is one sweep in progress, shared by everyone who asked for it
+// while it was running.
+type sweepFlight struct {
+	done chan struct{}
+	snap *snapshot
 }
 
 // Invalidate drops the cached sweep. Anything that changes a source calls it,
