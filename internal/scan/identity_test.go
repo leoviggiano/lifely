@@ -116,9 +116,10 @@ func TestFounderBoardIdentitySurvivesInsertion(t *testing.T) {
 	}
 }
 
-// Inserting an item at the top of the board must not renumber everyone below.
-//
-// a defect exists in two places, sweep the others BEFORE fixing the first.
+// A life.md marker takes its identity from the WHOLE line, not from the
+// leading counter: two markers can share a number and mean different things.
+// (The comment here was copy-pasted from the board test above and described
+// that test instead of this one.)
 func TestLifeMarkerIdentityUsesTheWholeLine(t *testing.T) {
 	long := strings.Repeat("z", 130)
 	root := t.TempDir()
@@ -141,6 +142,23 @@ func TestLedgerRowsWithoutIdDoNotCollide(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "fila.tsv"),
 		"# projeto\ttitulo\tstatus\nlifely\trevisar spec\tpendente\nject\trevisar spec\tpendente\n")
+	got := find(Tribunal(root).Pendencies, "A2")
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got))
+	}
+	if got[0].ID == got[1].ID {
+		t.Errorf("two rows share the id %q -- one disappears from the panel", got[0].ID)
+	}
+}
+
+// Date cells are dropped from the key so a touched row keeps its identity --
+// and that is exactly what lets two rows differing ONLY in a date collapse
+// into one. Uniqueness is the promise that wins here: the second row must
+// still get its own id, even at the cost of depending on its position.
+func TestLedgerRowsDifferingOnlyByDateDoNotCollide(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "fila.tsv"),
+		"# projeto\tatualizado\tstatus\nlifely\t2026-08-17\tpendente\nlifely\t2026-08-18\tpendente\n")
 	got := find(Tribunal(root).Pendencies, "A2")
 	if len(got) != 2 {
 		t.Fatalf("got %d rows, want 2", len(got))

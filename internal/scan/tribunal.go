@@ -286,6 +286,7 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 	var header []string
 	row := 0
 	statusAt := -1
+	seen := map[string]bool{}
 	var items []pendency.Pendency
 
 	sc := bufio.NewScanner(f)
@@ -313,6 +314,16 @@ func ledgerRows(root, path string, now time.Time) ([]pendency.Pendency, error) {
 			continue
 		}
 		key := naturalKey(header, cells, rel+":"+strconv.Itoa(row))
+		// Dropping date cells buys stability and can cost UNIQUENESS: two rows
+		// that differ only in a date slug to the same key, and the second one
+		// would silently take the first one's identity -- a decision that
+		// vanishes from the panel, which this file already calls the worse
+		// outcome. So uniqueness is enforced here, where the other rows are
+		// visible, and only the colliding row pays with position.
+		if seen[key] {
+			key = pendency.LocationKey(key, strconv.Itoa(row))
+		}
+		seen[key] = true
 		items = append(items, pendency.Pendency{
 			ID:      pendency.NewID(pendency.Slug(rel), key),
 			Class:   "A2",
@@ -353,9 +364,11 @@ func naturalKey(header, cells []string, ordinal string) string {
 	// A ledger without an explicit id cannot give all three of: stable across
 	// edits, unique, and independent of the other rows. The declared choice:
 	//
-	//   - uniqueness and row-locality are KEPT. The key is everything the row
-	//     says about itself, computed from this row alone -- no key depends on
-	//     which other rows happen to be in the file.
+	//   - uniqueness is KEPT, and it is the one that wins: this function is
+	//     row-local, but its caller breaks ties, because dropping date cells
+	//     can make two rows identical and only the caller can see that.
+	//   - row-locality holds for every row that is already unique; a colliding
+	//     row falls back to its position, and only that row.
 	//   - stability is promised only against what changes by design: the
 	//     status, and any date-shaped cell.
 	//
@@ -616,7 +629,7 @@ func dirtyTree(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	}
 	state.Count = 1
 	return []pendency.Pendency{{
-		ID:      pendency.NewID("git", "arvore-suja"),
+		ID:      pendency.NewID("git", "dirty-tree"),
 		Class:   "A5",
 		Source:  "git status",
 		Title:   "Working tree has uncommitted changes",
