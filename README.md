@@ -93,9 +93,9 @@ comentário e sua declaração, ou um membro entre o comentário e a constante q
 ele documenta dentro de um `const(...)`, não quebra compilação nem teste. O
 `doclint` cobre toda forma de declaração: func, type, var e const soltos, e
 cada spec dentro de `const(...)`/`var(...)`/`type(...)`. Import fica de fora de
-propósito: um comentário só é acusado quando o símbolo que ele nomeia tem dono,
-e import não declara nome que o lint indexe. O `cmd/doclint` diz por que isso é
-lint, e não suíte.
+propósito: um comentário só é acusado quando a declaração que o carrega
+declara algum nome, e import não declara nome que o lint indexe. O
+`cmd/doclint` diz por que isso é lint, e não suíte.
 
 ## Onde mora a verdade
 
