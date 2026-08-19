@@ -742,8 +742,8 @@ func agenda(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	seenAgendaKeys := map[string]bool{}
 	for i, e := range entries {
 		// `pauta-`, with the hyphen: the source calls itself `pauta-*.md` in
-		// its own label, in the README and here, and a bare "pauta" prefix
-		// also swallowed `pautas-antigas.md` and `pautado.md`.
+		// its own label, in the record repo's MAPA.md and here, and a bare
+		// "pauta" prefix also swallowed `pautas-antigas.md` and `pautado.md`.
 		if e.IsDir() || !strings.HasPrefix(e.Name(), "pauta-") || filepath.Ext(e.Name()) != ".md" {
 			continue
 		}
