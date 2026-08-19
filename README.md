@@ -41,8 +41,12 @@ fonte `ject` aparece ilegível e a varredura é parcial. O quadro sai assim mesm
 com o cabeçalho marcado `INCOMPLETE`; o código de saída existe para o script que
 não pode tratar quadro parcial como quadro limpo.
 
-**Códigos de saída**: `0` fez · `1` falhou (ou varredura parcial) · **`3` recusou
-deliberadamente** —
+Corte por orçamento de varredura é outra coisa: nenhuma fonte falhou, então o
+cabeçalho sai marcado `PARTIAL` (e não `INCOMPLETE`) e a saída é `0` — o quadro
+não está inteiro, mas nada quebrou.
+
+**Códigos de saída**: `0` fez · `1` falhou (ou fonte ilegível na varredura) ·
+**`3` recusou deliberadamente** —
 o painel continua de pé e o motivo já foi impresso. Um script que fecha o
 tribunal precisa dos três separados: "parei", "quebrei" e "não era meu para
 parar" são decisões diferentes.
@@ -73,15 +77,20 @@ painel varre exatamente o que este comando varre.
 ## Desenvolvimento
 
 ```sh
-go build ./...    # compila
-go test ./...     # testes
-go vet ./...      # lint
-gofmt -w .        # formato
+go build ./...           # compila
+go test ./...            # testes
+go vet ./...             # lint
+go run ./cmd/doclint .   # lint: comentário de doc no símbolo errado
+gofmt -w .               # formato
 ```
 
 Este repo é **gated**: todo push sai por `git push no-mistakes`. O portão roda
 `test` e `lint` com `-trimpath` (comandos e motivo em `.no-mistakes.yaml`) —
-teste que localize fixture por `runtime.Caller` passa aqui e quebra lá.
+teste que localize fixture por `runtime.Caller` passa aqui e quebra lá. O `lint`
+do portão são os **dois** comandos acima: `go vet` mais o `doclint`, que recusa
+comentário de doc que ficou no símbolo errado — inserir uma função entre o
+comentário e sua declaração não quebra compilação nem teste, e o `cmd/doclint`
+diz por que isso é lint, e não suíte.
 
 ## Onde mora a verdade
 
