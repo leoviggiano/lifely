@@ -316,6 +316,20 @@ func TestSonarPageWithNoStampedEventClaimsNoAge(t *testing.T) {
 	}
 }
 
+// A log smaller than the read's window must not claim to be windowed, and the
+// page must not warn about a boundary that is not there.
+func TestSonarPageDoesNotWarnAboutAWindowItDidNotUse(t *testing.T) {
+	h := New(7777, "manual", mustFixture(t))
+	_, body := get(t, h, "/api/sonar")
+	if body["windowed"].(bool) {
+		t.Error("windowed = true for a log of five lines")
+	}
+	_, page := html(t, h, "/sonar")
+	if strings.Contains(page, "outside this window") {
+		t.Error("the page warns about a window boundary it never reached")
+	}
+}
+
 func TestStaticAssetsAreServed(t *testing.T) {
 	// web.Assets had no caller at all before this ticket: the embed existed
 	// and nothing read it. This pins that the binary now serves what it

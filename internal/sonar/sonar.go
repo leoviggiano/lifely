@@ -117,8 +117,18 @@ type Feed struct {
 	// NewestAt is the stamp of the most recent event that carried one. Zero
 	// when the feed is empty or nothing in it was stamped.
 	NewestAt time.Time
-	// Total is how many events the read produced before Limit cut it.
+	// Total is how many events the read produced before Limit cut it --
+	// which is a count over the WINDOW, never over the log's whole history.
+	// Windowed says whether those two are the same thing.
 	Total int
+	// Windowed is the log having been bigger than TailBytes, so this read saw
+	// only its end.
+	//
+	// It exists because Total without it is an invitation to misread: a
+	// footer saying "200 of 3900 events" on a log with ten thousand lines
+	// omits seven thousand of them and looks complete doing it. The count is
+	// honest; the silence around it would not be.
+	Windowed bool
 	// Err is why the log could not be read, empty when it could.
 	Err string
 	// Missing distinguishes "no log here" from "the log is broken". An
@@ -219,12 +229,21 @@ func split(text string) (kind, topic, rest string) {
 		if slug := slugOrEmpty(m[2]); slug != "" {
 			return normalise(m[1]), slug, tail
 		}
-		// The name is real, the thing in brackets is not one: `custodia(2.5.31):`
-		// is a law citation, `sonar(frota 2):` a note. Declining it used to
-		// drop it from the message along with the kind, which is the same
-		// silent loss the space-separated branch below was written to avoid --
-		// caught by the gate on the second review. Only the name is consumed;
-		// what was declined goes back to the front of the message.
+		// The name is real, the thing in brackets is not one:
+		// `custodia(2.5.31):` is a law citation where a project would go.
+		// Declining it used to drop it from the message along with the kind,
+		// which is the same silent loss the space-separated branch below was
+		// written to avoid -- caught by the gate on the second review. Only
+		// the name is consumed; what was declined goes back to the front of
+		// the message.
+		//
+		// A bracketed note with a SPACE in it (`sonar(frota 2):`) never gets
+		// here: cutField splits on whitespace first, so `qualified` -- which
+		// anchors on a closing bracket -- does not match, and the line leaves
+		// split below with no kind and its text whole. Said out loud because
+		// the first version of this comment claimed the case as its own
+		// example, and a comment that teaches a path the code does not take
+		// is the defect this branch was fixing, one level up.
 		return normalise(m[1]), "", joinFields(head[len(m[1]):], tail)
 	}
 
@@ -472,6 +491,8 @@ func Read(path string, limit int, now time.Time) Feed {
 		feed.Err = "the sonar log could not be read: " + err.Error()
 		return feed
 	}
+
+	feed.Windowed = info.Size() > TailBytes
 
 	data, cut, err := tail(f, info.Size(), TailBytes)
 	if err != nil {

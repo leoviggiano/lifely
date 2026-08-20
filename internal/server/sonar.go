@@ -90,6 +90,11 @@ type sonarResponse struct {
 	// read produced before limit. They differ exactly when limit cut.
 	Count int `json:"count"`
 	Total int `json:"total"`
+	// Windowed says Total counts only the end of the log, because the file
+	// was bigger than the read's window. A consumer that reports Total as
+	// "the fleet's history" without checking this is reporting a fraction as
+	// a whole.
+	Windowed bool `json:"windowed"`
 	// Projects are the slugs the log declares, offered as filter options.
 	Projects []string `json:"projects"`
 	// Path is the log that was read, so a wrong --root shows on the screen.
@@ -164,6 +169,7 @@ func (p *Panel) sonarAPI(c fuego.ContextNoBody) (sonarResponse, error) {
 		Events:   make([]sonarEventJSON, 0, len(feed.Events)),
 		Count:    len(feed.Events),
 		Total:    feed.Total,
+		Windowed: feed.Windowed,
 		Projects: read.Projects,
 		Path:     feed.Path,
 		ReadAt:   feed.ReadAt,

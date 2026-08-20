@@ -344,6 +344,40 @@ func TestReadKeepsTheFirstLineWhenTheTailLandsCleanly(t *testing.T) {
 	}
 }
 
+// Total counts the window, not the log, and the feed has to say which. The
+// gate raised the wording (run 01M0FDQT0W): a footer reading "200 of 3900
+// events" on a log with ten thousand lines omits the rest and looks complete
+// doing it.
+func TestReadSaysWhenItOnlySawTheEndOfTheLog(t *testing.T) {
+	small := Read(fixture, 0, time.Now())
+	if small.Windowed {
+		t.Error("Windowed = true for a log smaller than the window")
+	}
+
+	const width = 128
+	line := func(i int) string {
+		body := "2026-08-20T07:00:00 frota n" + strconv.Itoa(i) + " "
+		return body + strings.Repeat("x", width-1-len(body)) + "\n"
+	}
+	var b strings.Builder
+	for i := 0; b.Len() <= TailBytes; i++ {
+		b.WriteString(line(i))
+	}
+	path := filepath.Join(t.TempDir(), "big.log")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	big := Read(path, 0, time.Now())
+	if !big.Windowed {
+		t.Error("Windowed = false for a log bigger than the window")
+	}
+	// And the flag survives the filter, which is where the screen reads it.
+	if !Filter(big, "", 10).Windowed {
+		t.Error("Filter dropped Windowed; the footer would go back to claiming the whole log")
+	}
+}
+
 func first(b []byte, n int) string {
 	if len(b) < n {
 		n = len(b)

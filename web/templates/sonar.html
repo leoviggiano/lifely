@@ -74,7 +74,12 @@
     {{ end }}
   {{ else }}
     <strong>{{ len .Events }}</strong>
-    <span class="muted">of {{ .Feed.Total }} event{{ if ne .Feed.Total 1 }}s{{ end }}</span>
+    {{/* "de N eventos" precisa dizer N de QUÊ: a leitura enxerga só o fim do
+         arquivo. Sem essa palavra, o rodapé convida a ler o total como a
+         história inteira — e omitir o resto em silêncio é a classe que este
+         ticket recusa. */}}
+    <span class="muted">of {{ .Feed.Total }} event{{ if ne .Feed.Total 1 }}s{{ end }}
+      {{- if .Feed.Windowed }} in the window read{{ end }}</span>
     {{ if .Project }}<span class="muted">·</span> <strong>{{ .Project }}</strong>{{ end }}
     {{/* Um feed cujos eventos não têm carimbo nenhum não tem idade — e
          "just now" na cor saudável seria a barra que envelhece mentindo.
@@ -109,5 +114,7 @@
 
 <p class="source muted">
   source: <code>{{ .Feed.Path }}</code> · read at {{ stamp .Feed.ReadAt }}
+  {{- if .Feed.Windowed }} · only the end of the log was read; anything older
+  than the events above is outside this window{{ end }}
 </p>
 {{ end }}
