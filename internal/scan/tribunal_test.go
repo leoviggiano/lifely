@@ -609,8 +609,8 @@ func TestUnclosedFenceDoesNotSwallowTheRestOfTheBoard(t *testing.T) {
 // `## Pendencias`. The substring match this replaced searched for `"## "`,
 // which pinned level 2 by accident of the string it looked for; the accident
 // kept being read back as the rule. The contract is FR7 of LIFELY-028, in its
-// specs/requirements.md in the ject vault -- a bare `spec FR7` elsewhere in
-// this repo means lifely-001, whose FR7 is the server lifecycle.
+// specs/requirements.md in the ject vault; README's "Onde mora a verdade" owns
+// the reason the ticket has to be named at all.
 func TestCarriesForwardAtEveryHeadingLevel(t *testing.T) {
 	for _, marker := range []string{"#", "##", "###", "####", "#####", "######"} {
 		root := t.TempDir()
@@ -630,5 +630,17 @@ func TestCarriesForwardAtEveryHeadingLevel(t *testing.T) {
 		if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 0 {
 			t.Errorf("%q Entregue produced %d pendencies, want 0", marker, len(got))
 		}
+	}
+
+	// The upper boundary is where "level does not matter" stops mattering:
+	// the parser accepts one to six hashes, so a seventh makes the line Text,
+	// and text never carries a round forward however it is worded. Without
+	// this case the loops above would still pass against a parser that took
+	// any number of hashes -- and the doc comment claims a limit.
+	root := t.TempDir()
+	write(t, filepath.Join(root, "sessions", "2026-08-19", "summary.md"),
+		"# Sessao\n\n####### Pendentes\n\nfalta o veredito.\n")
+	if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 0 {
+		t.Errorf("seven hashes produced %d pendencies, want 0 -- that is text, not a heading", len(got))
 	}
 }
