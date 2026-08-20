@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -577,7 +579,32 @@ type Origin struct {
 // struct is written anywhere else. This test exists so the doc's "measured,
 // not assumed" stays measured; lifely-032 carries the coverage half, and when
 // it lands this test is what says so.
+//
+// A test that asserts SILENCE needs a control, and this one needs two: `check`
+// also says nothing about a file it cannot parse (parse errors are the
+// compiler's business -- see the ParseFile branch in check), so a syntax slip
+// inside a fixture string would make every case below pass while measuring
+// nothing at all. So each source is parsed here before it is judged, and the
+// same displacement written under a `type` is asserted to FIRE. What the cases
+// then prove is silence produced by a live check, not silence from a dead one.
 func TestFieldReachStopsAtTheTypeSpec(t *testing.T) {
+	const control = `package fixture
+
+// Origin points back at where the pendency was read from.
+type Origin struct {
+	// Path is the file the item came from.
+	Kind string
+	Path string
+}
+`
+	problems, err := check(writeFixture(t, control))
+	if err != nil {
+		t.Fatalf("control: check: %v", err)
+	}
+	if len(problems) != 1 {
+		t.Fatalf("control: the same displacement under `type` must be caught, or the cases below measure nothing; got %d: %v", len(problems), problems)
+	}
+
 	unreached := []fixture{
 		{
 			name: "anonymous struct given to a var",
@@ -608,6 +635,9 @@ func Read() (out struct {
 	}
 	for _, f := range unreached {
 		t.Run(f.name, func(t *testing.T) {
+			if _, perr := parser.ParseFile(token.NewFileSet(), "fixture.go", f.src, parser.ParseComments); perr != nil {
+				t.Fatalf("fixture does not parse, so doclint's silence about it measures nothing: %v", perr)
+			}
 			var stderr bytes.Buffer
 			if code := run([]string{writeFixture(t, f.src)}, &stderr); code != 0 {
 				t.Fatalf("the doc calls this reach a gap, but doclint exited %d: %s", code, stderr.String())
