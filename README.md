@@ -85,6 +85,14 @@ Três coisas que a tela promete e são requisito, não estilo:
   sonar — o feed diz que o sonar está frio. Carimbo velho na tela é alarme por
   si só; barra que envelhece em silêncio mente.
 
+A leitura pega só o **fim do log** (os últimos 512 KiB): o feed é história
+recente e relê o arquivo a cada poucos segundos, então o custo do evento mais
+novo não pode crescer com o histórico inteiro. Quando esse corte acontece, a
+tela diz — o rodapé conta os eventos **da janela lida**, e não da história
+toda, e avisa que o que é mais velho ficou fora. A única linha que o feed
+descarta é a meia-linha que o próprio corte produziu, porque essa é a única
+que ele mesmo quebrou.
+
 O filtro por projeto casa o slug no texto da linha, porque o log declara o
 projeto estruturalmente só em `portao` e `notify` e a notícia de verdade está
 na prosa. As **opções** do filtro, ao contrário, saem só do que o log declara:

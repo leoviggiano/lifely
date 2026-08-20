@@ -1,8 +1,9 @@
-/* Design tokens do painel.
+/* Design tokens do painel, e o estilo da primeira tela que os usa.
  *
  * A semântica é requisito, não decoração (spec FR4.10): a mesma cor significa
- * a mesma coisa em todas as telas. As telas em si chegam nos tickets de UI;
- * aqui ficam só os tokens, para que nasçam de uma fonte só.
+ * a mesma coisa em todas as telas. Os tokens vêm primeiro e de uma fonte só;
+ * as telas que chegam nos tickets de UI se pintam com eles, como o feed do
+ * sonar já faz logo abaixo.
  */
 :root {
   --lifely-bg: #1c1b19;          /* carvão neutro */
