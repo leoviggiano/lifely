@@ -590,3 +590,127 @@ const (
 		t.Fatalf("want silence, got %q", stderr.String())
 	}
 }
+
+// writeTree drops a whole set of files, each at its own path under a fresh
+// directory, and returns that directory. The fence check reads the path a file
+// sits at -- internal/md is exempt and nothing else is -- so its fixtures need
+// directories, which writeFixture's single flat file cannot express.
+func writeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, src := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir for %s: %v", name, err)
+		}
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	return root
+}
+
+// fenceMachineSource is the guard itself, in the shape all three scanners wrote
+// it before internal/md existed: the delimiter tested, the state flipped.
+const fenceMachineSource = "package fixture\n\n" +
+	"import \"strings\"\n\n" +
+	"// scan walks lines and skips the fenced ones.\n" +
+	"func scan(lines []string) int {\n" +
+	"\tinFence := false\n" +
+	"\tn := 0\n" +
+	"\tfor _, line := range lines {\n" +
+	"\t\tif strings.HasPrefix(line, \"```\") {\n" +
+	"\t\t\tinFence = !inFence\n" +
+	"\t\t\tcontinue\n" +
+	"\t\t}\n" +
+	"\t\tif inFence {\n" +
+	"\t\t\tcontinue\n" +
+	"\t\t}\n" +
+	"\t\tn++\n" +
+	"\t}\n" +
+	"\treturn n\n" +
+	"}\n"
+
+// TestFenceCopiesAcceptsTheParserItself proves the exemption is real: the same
+// machine, inside internal/md, is the one copy that must exist.
+func TestFenceCopiesAcceptsTheParserItself(t *testing.T) {
+	root := writeTree(t, map[string]string{"internal/md/md.go": fenceMachineSource})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 0 {
+		t.Fatalf("want no copy reported inside the parser package, got %v", copies)
+	}
+}
+
+// TestFenceCopiesRejectsACopyOutsideTheParser is AC009 in its direct form: the
+// fourth hand-written copy of the fence guard is refused, naming the function
+// that holds it.
+func TestFenceCopiesRejectsACopyOutsideTheParser(t *testing.T) {
+	root := writeTree(t, map[string]string{"internal/scan/tribunal.go": fenceMachineSource})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 1 {
+		t.Fatalf("want exactly 1 copy reported, got %d: %v", len(copies), copies)
+	}
+	if !strings.Contains(copies[0], "scan toggles a fence state of its own") {
+		t.Fatalf("report does not name the function holding the copy: %q", copies[0])
+	}
+}
+
+// TestFenceCopiesIgnoresFencedTestData holds the false-positive line that
+// decided the rule's shape: internal/scan's tests carry fenced markdown as
+// fixture data, and data is not a guard.
+func TestFenceCopiesIgnoresFencedTestData(t *testing.T) {
+	src := "package fixture\n\n" +
+		"// fixtureBody is a decision body with a fenced example inside it.\n" +
+		"func fixtureBody() string {\n" +
+		"\treturn \"## D1\\n\\n```markdown\\n## D9 exemplo\\n```\\n\"\n" +
+		"}\n"
+	root := writeTree(t, map[string]string{"internal/scan/ject_test.go": src})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 0 {
+		t.Fatalf("want fenced test data left alone, got %v", copies)
+	}
+}
+
+// TestFenceCopiesIgnoresAnUnrelatedToggle holds the other false-positive line:
+// a boolean that alternates for reasons of its own is nobody's fence.
+func TestFenceCopiesIgnoresAnUnrelatedToggle(t *testing.T) {
+	src := "package fixture\n\n" +
+		"// blink alternates a lamp.\n" +
+		"func blink(times int) bool {\n" +
+		"\ton := false\n" +
+		"\tfor i := 0; i < times; i++ {\n" +
+		"\t\ton = !on\n" +
+		"\t}\n" +
+		"\treturn on\n" +
+		"}\n"
+	root := writeTree(t, map[string]string{"internal/scan/blink.go": src})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 0 {
+		t.Fatalf("want an unrelated toggle left alone, got %v", copies)
+	}
+}
+
+// TestRunExitsOneOnCopiedFenceGuard is AC009 in the form commands.lint consumes
+// it: a copied guard must make the program exit 1 and say which check failed.
+func TestRunExitsOneOnCopiedFenceGuard(t *testing.T) {
+	root := writeTree(t, map[string]string{"internal/scan/tribunal.go": fenceMachineSource})
+	var stderr bytes.Buffer
+	if code := run([]string{root}, &stderr); code != 1 {
+		t.Fatalf("want exit code 1, got %d (stderr: %s)", code, stderr.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, "1 copied fence guard(s) outside internal/md") {
+		t.Fatalf("stderr does not report the fence count: %q", got)
+	}
+}

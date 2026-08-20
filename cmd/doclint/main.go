@@ -1,4 +1,9 @@
-// Command doclint reports a doc comment that sits on the wrong symbol.
+// Command doclint reports a doc comment that sits on the wrong symbol, and a
+// code-fence state machine written outside the package that owns it.
+//
+// Two checks, one program, because both are the same shape of defect: something
+// the compiler, the test suite and a quick read all wave through. The first
+// check is below; the second is fenceCopies, and it says why it exists there.
 //
 // It is a LINT, and it is a program because that is what a lint is. It began
 // as a test, and the gate objected three times to the same thing: a _test.go
@@ -39,6 +44,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -65,11 +71,24 @@ func run(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "doclint:", err)
 		return 2
 	}
+	copies, err := fenceCopies(root)
+	if err != nil {
+		fmt.Fprintln(stderr, "doclint:", err)
+		return 2
+	}
 	for _, p := range problems {
 		fmt.Fprintln(stderr, p)
 	}
+	for _, c := range copies {
+		fmt.Fprintln(stderr, c)
+	}
 	if len(problems) > 0 {
 		fmt.Fprintf(stderr, "doclint: %d doc comment(s) on the wrong symbol\n", len(problems))
+	}
+	if len(copies) > 0 {
+		fmt.Fprintf(stderr, "doclint: %d copied fence guard(s) outside %s\n", len(copies), parserPackage)
+	}
+	if len(problems) > 0 || len(copies) > 0 {
 		return 1
 	}
 	return 0
@@ -354,6 +373,135 @@ func declaredNames(decl ast.Decl) []string {
 		return out
 	}
 	return nil
+}
+
+// parserPackage is the one package allowed to own a code-fence state machine.
+// The path is relative to the root doclint was pointed at, so the exemption
+// travels with the module rather than with anybody's working directory.
+const parserPackage = "internal/md"
+
+// fenceDelimiter is the markdown code-fence marker. It sits at package level on
+// purpose: fenceCopies only reads function BODIES, so naming the delimiter here
+// keeps this lint from reporting itself -- and the day it moves inside a
+// function, the copy it becomes is one this check would have to answer for.
+const fenceDelimiter = "```"
+
+// fenceCopies reports every hand-written copy of the code-fence state machine
+// living outside internal/md.
+//
+// This is the second check, and it exists because of what the first one cannot
+// see: lifely-028 measured three scanners carrying their own copies of the same
+// fence guard, and the copies diverged TWICE in two gate rounds -- a guard
+// propagated by half recreates the bug it was written to kill. Consolidating
+// them into internal/md fixes the instances; only a mechanical lock keeps the
+// fourth copy from being written next month. It is a lint and not a _test.go by
+// the lesson this repository already paid for: an assertion about the SHAPE of
+// code is a lint, and the gate raised that same objection three times.
+//
+// The signature it looks for is the machine's two inseparable halves, in one
+// function: a string literal carrying the fence delimiter, and a boolean that
+// flips on itself. Both, or nothing. Test fixtures across internal/scan hold
+// fenced markdown as data and would be false positives under a rule that only
+// read the literal; a bool that toggles for any other reason is nobody's fence.
+// A lint that rejects correct code is worse than no lint, and this one is wired
+// into commands.lint with no suppression directive.
+func fenceCopies(root string) ([]string, error) {
+	var problems []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err
+		}
+		if ownsTheGuard(root, path) {
+			return nil
+		}
+		fset := token.NewFileSet()
+		file, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return nil // not our business: the compiler reports these
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			fence, flip := fenceMachine(fn.Body)
+			if !flip.IsValid() {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf("%s:%d: %s toggles a fence state of its own (delimiter at line %d); %s owns that guard",
+				path, fset.Position(flip).Line, fn.Name.Name, fset.Position(fence).Line, parserPackage))
+		}
+		return nil
+	})
+	return problems, err
+}
+
+// ownsTheGuard reports whether path is the parser package itself, the one place
+// the fence state machine is allowed to live.
+func ownsTheGuard(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return filepath.ToSlash(filepath.Dir(rel)) == parserPackage
+}
+
+// fenceMachine returns the positions of a fence state machine's two halves
+// inside one function body: where the delimiter is named, and where a boolean
+// flips on itself. Both positions come back invalid unless BOTH halves are
+// present, because either one alone is ordinary code.
+func fenceMachine(body *ast.BlockStmt) (fence, flip token.Pos) {
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.BasicLit:
+			if !fence.IsValid() && node.Kind == token.STRING && strings.Contains(literalValue(node), fenceDelimiter) {
+				fence = node.Pos()
+			}
+		case *ast.AssignStmt:
+			if !flip.IsValid() {
+				if pos := selfNegation(node); pos.IsValid() {
+					flip = pos
+				}
+			}
+		}
+		return true
+	})
+	if !fence.IsValid() || !flip.IsValid() {
+		return token.NoPos, token.NoPos
+	}
+	return fence, flip
+}
+
+// literalValue returns what a string literal actually holds. An unquote failure
+// falls back to the raw source text: a delimiter this lint cannot decode is
+// still a delimiter, and missing it would be the silent half of the failure.
+func literalValue(lit *ast.BasicLit) string {
+	if unquoted, err := strconv.Unquote(lit.Value); err == nil {
+		return unquoted
+	}
+	return lit.Value
+}
+
+// selfNegation returns the position of an assignment that flips a boolean onto
+// itself (`x = !x`) -- the shape every copy of the fence machine wrote, because
+// a fence alternates. Anything else comes back as no position.
+func selfNegation(as *ast.AssignStmt) token.Pos {
+	if as.Tok != token.ASSIGN || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+		return token.NoPos
+	}
+	target, ok := as.Lhs[0].(*ast.Ident)
+	if !ok {
+		return token.NoPos
+	}
+	unary, ok := as.Rhs[0].(*ast.UnaryExpr)
+	if !ok || unary.Op != token.NOT {
+		return token.NoPos
+	}
+	operand, ok := unary.X.(*ast.Ident)
+	if !ok || operand.Name != target.Name {
+		return token.NoPos
+	}
+	return as.Pos()
 }
 
 // contains reports whether needle is one of the names in haystack.

@@ -103,6 +103,16 @@ declara nome que o lint indexe — e declaração dentro de corpo de função (o
 lint só anda as declarações de topo do arquivo). O `cmd/doclint` diz por que
 isso é lint, e não suíte, e o que fica fora do alcance.
 
+O `doclint` tem uma **segunda checagem**: ele recusa uma máquina de estado de
+cerca escrita fora de `internal/md`, que é o único lugar onde essa guarda pode
+morar. Três scanners já carregaram cópias da mesma guarda e as cópias
+divergiram duas vezes; consolidá-las conserta as instâncias, e só uma trava
+mecânica impede a quarta cópia. A assinatura que ela procura são as duas
+metades inseparáveis da máquina **na mesma função**: um literal com o
+delimitador de cerca e um booleano que se nega a si mesmo (`x = !x`). As duas,
+ou nada — fixture de teste com markdown cercado é dado, não guarda, e booleano
+que alterna por outro motivo não é cerca de ninguém.
+
 ## Onde mora a verdade
 
 A spec é `lifely-001` no vault do ject
