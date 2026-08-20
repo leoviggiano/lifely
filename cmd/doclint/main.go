@@ -11,20 +11,23 @@
 // that stops running. `go run ./cmd/doclint .` needs exactly what the build
 // already needs.
 //
-// The class it kills: something slipped between a doc comment and the TOP-LEVEL
-// declaration it documents -- a function above a declaration, or a member above
-// the constant it names inside a const(...)/var(...)/type(...) block (docUnits
-// says how both are reached). Invisible to the compiler, to every test, and to
-// a quick read -- five instances in one night, two from a merge and three from
-// my own edits.
+// The class it kills: something slipped between a doc comment and the symbol
+// it documents -- a function above a declaration, a member above the constant
+// it names inside a const(...)/var(...)/type(...) block, or a field inserted
+// above the struct field or interface method it describes (docUnits says how
+// each is reached). Invisible to the compiler, to every test, and to a quick
+// read -- five instances in one night, two from a merge and three from my own
+// edits.
 //
-// What it does NOT reach, said plainly so the claim above stays honest: doc
-// comments on struct fields and interface methods (ast.Field), which live in a
-// different AST container and are a surface of their own. A comment above
+// What it does NOT reach, said plainly so the claim above stays honest:
+// import declarations (an aliased import does bind a name, but reaching it
+// means teaching the file-wide index about aliases too -- a surface of its
+// own; docUnits says why it stays out), and declarations inside function
+// bodies (only the file's top-level declarations are walked). A comment above
 // `const (` itself IS examined, but it owns every name in the block at once --
-// Go convention says it documents the GROUP -- so a member slipping in under it
-// is not a misplacement here; it is still flagged when its first word names a
-// symbol declared somewhere else in the file.
+// Go convention says it documents the GROUP -- so a member slipping in under
+// it is not a misplacement here; it is still flagged when its first word names
+// a symbol declared somewhere else in the file.
 package main
 
 import (
@@ -143,7 +146,8 @@ func check(root string) ([]string, error) {
 
 // docUnit is one doc comment together with the names it is allowed to open
 // with. A declaration can carry several: a parenthesised const/var/type block
-// has its own comment plus one per spec inside it.
+// has its own comment plus one per spec inside it, and any type spec adds one
+// per documented struct field or interface method.
 type docUnit struct {
 	doc    *ast.CommentGroup
 	owners []string
@@ -168,10 +172,15 @@ type docUnit struct {
 // misplaced. That was already true before grouped specs were reached, and a
 // lint that rejects correct code is worse than no lint.
 //
+// Struct fields and interface methods live in a container of their own
+// (ast.Field, under a TypeSpec); fieldUnits says how they are reached and why
+// their owners are per field.
+//
 // Imports themselves are deliberately NOT covered. An aliased import does bind
 // a name, but reaching it means teaching the file-wide index about aliases too,
 // and that is a second surface with its own failure modes -- outside the
-// declaration forms this ticket names. Recorded as a follow-up, not smuggled in.
+// declaration forms this lint names. Tried once, measured at three gate rounds,
+// and withdrawn; if it ever pays, it is a ticket of its own.
 func docUnits(decl ast.Decl) []docUnit {
 	switch d := decl.(type) {
 	case *ast.FuncDecl:
@@ -186,14 +195,108 @@ func docUnits(decl ast.Decl) []docUnit {
 		}
 		for _, spec := range d.Specs {
 			doc, names := specDoc(spec)
-			if doc == nil || len(names) == 0 {
-				continue
+			if doc != nil && len(names) > 0 {
+				out = append(out, docUnit{doc: doc, owners: names, pos: spec.Pos()})
 			}
-			out = append(out, docUnit{doc: doc, owners: names, pos: spec.Pos()})
+			if ts, ok := spec.(*ast.TypeSpec); ok {
+				out = append(out, fieldUnits(ts)...)
+			}
 		}
 		return out
 	}
 	return nil
+}
+
+// fieldUnits returns one unit per documented struct field or interface method
+// under a type spec -- the ast.Field container the rest of docUnits never sees.
+// The blind spot it closes is the same class as the grouped specs: a field
+// inserted between a comment and the field it documents compiles, reads wrong,
+// and passed this lint (internal/pendency/pendency.go's Origin was the live
+// surface that proved it).
+//
+// Owners are the names of THAT field, never the struct's: the container's
+// names would let a comment claim any sibling. The siblings travel in the
+// unit's LOCAL set instead of the file-wide index -- a field name is not a
+// top-level symbol, and indexing it globally would change what the lint
+// flags in the whole file, not just inside its own container. That keeps the
+// insertion case visible (the displaced comment names a sibling) without
+// widening anything else.
+//
+// An embedded field owns its IMPLICIT name -- the unqualified type name, which
+// is how Go itself addresses it (`sync.Mutex` embeds as `Mutex`). Dropping it
+// instead, as the first round did, left the ticket's own bug class reachable:
+// an embedded field inserted between a comment and the field it documents
+// swallowed the displaced comment and the lint stayed silent (gate finding
+// `embedded-field-insertion-unreached`). A field whose name cannot be derived
+// still produces no unit -- the empty-owner rule that keeps `import (`
+// comments out, because with no owner every first word belongs to somebody
+// else.
+func fieldUnits(ts *ast.TypeSpec) []docUnit {
+	var out []docUnit
+	ast.Inspect(ts.Type, func(n ast.Node) bool {
+		var list *ast.FieldList
+		switch t := n.(type) {
+		case *ast.StructType:
+			list = t.Fields
+		case *ast.InterfaceType:
+			list = t.Methods
+		default:
+			return true
+		}
+		if list == nil {
+			return true
+		}
+		siblings := map[string]bool{}
+		for _, field := range list.List {
+			for _, name := range fieldNames(field) {
+				siblings[name] = true
+			}
+		}
+		for _, field := range list.List {
+			owners := fieldNames(field)
+			if field.Doc == nil || len(owners) == 0 {
+				continue
+			}
+			out = append(out, docUnit{doc: field.Doc, owners: owners, local: siblings, pos: field.Pos()})
+		}
+		return true
+	})
+	return out
+}
+
+// fieldNames returns the names a field answers to: its explicit names, or the
+// implicit one an embedded field takes from its type.
+func fieldNames(field *ast.Field) []string {
+	if len(field.Names) > 0 {
+		var out []string
+		for _, name := range field.Names {
+			out = append(out, name.Name)
+		}
+		return out
+	}
+	if name := embeddedName(field.Type); name != "" {
+		return []string{name}
+	}
+	return nil
+}
+
+// embeddedName returns the implicit name of an embedded field: the unqualified
+// type name, with any pointer or type-argument wrapping peeled off, exactly as
+// the language derives it.
+func embeddedName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	case *ast.StarExpr:
+		return embeddedName(t.X)
+	case *ast.IndexExpr:
+		return embeddedName(t.X)
+	case *ast.IndexListExpr:
+		return embeddedName(t.X)
+	}
+	return ""
 }
 
 // specDoc returns the doc comment attached to a single spec and the names that
@@ -233,7 +336,11 @@ func localNames(fn *ast.FuncDecl) map[string]bool {
 }
 
 // declaredNames returns every top-level name a declaration introduces, which is
-// what the file-wide index of known symbols is built from.
+// what the file-wide index of known symbols is built from. The spec->names
+// extraction is specDoc's -- one copy of that rule, because this index decides
+// whether a problem is reported at all, and a second copy is where the two
+// would drift apart. Field names are deliberately NOT in here: they are local
+// to their container, and fieldUnits carries them in the unit's local set.
 func declaredNames(decl ast.Decl) []string {
 	switch d := decl.(type) {
 	case *ast.FuncDecl:
@@ -241,14 +348,8 @@ func declaredNames(decl ast.Decl) []string {
 	case *ast.GenDecl:
 		var out []string
 		for _, spec := range d.Specs {
-			switch s := spec.(type) {
-			case *ast.TypeSpec:
-				out = append(out, s.Name.Name)
-			case *ast.ValueSpec:
-				for _, n := range s.Names {
-					out = append(out, n.Name)
-				}
-			}
+			_, names := specDoc(spec)
+			out = append(out, names...)
 		}
 		return out
 	}
