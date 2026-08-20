@@ -82,7 +82,7 @@ mesmo do `serve`: o painel varre exatamente o que este comando varre.
 go build ./...           # compila
 go test ./...            # testes
 go vet ./...             # lint
-go run ./cmd/doclint .   # lint: comentário de doc no símbolo errado
+go run ./cmd/doclint .   # lint: doc no símbolo errado · cerca fora do md
 gofmt -w .               # formato
 ```
 
@@ -99,9 +99,9 @@ dentro de `const(...)`/`var(...)`/`type(...)`, e os campos de struct e métodos
 de interface declarados num `type` (campo embutido responde pelo nome
 implícito do tipo). Ficam de fora de propósito o import — um comentário só é
 acusado quando a declaração que o carrega declara algum nome, e import não
-declara nome que o lint indexe — e declaração dentro de corpo de função (o
-lint só anda as declarações de topo do arquivo). O `cmd/doclint` diz por que
-isso é lint, e não suíte, e o que fica fora do alcance.
+declara nome que o lint indexe — e declaração dentro de corpo de função (esta
+checagem só anda as declarações de topo do arquivo). O `cmd/doclint` diz por
+que isso é lint, e não suíte, e o que fica fora do alcance.
 
 O `doclint` tem uma **segunda checagem**: ele recusa uma máquina de estado de
 cerca escrita fora de `internal/md`, que é o único lugar onde essa guarda pode
