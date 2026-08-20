@@ -137,26 +137,18 @@ func (p *Panel) clock() time.Time {
 // per ticket and is measured in seconds; this is one read of one file, and
 // putting it behind the same three-second TTL would have made the feed as
 // slow as the thing it is not.
+//
+// The narrowing itself is sonar.Filter's and not written here, because
+// keeping Events, Total and NewestAt agreeing with one another is one
+// invariant and belongs next to the type that declares them.
 func (p *Panel) readSonar(project string, limit int) sonarRead {
 	feed := sonar.Read(p.sonarPath(), 0, p.clock())
-	out := sonarRead{Feed: feed, Projects: sonar.Projects(feed.Events)}
-
-	kept := make([]sonar.Event, 0, len(feed.Events))
-	matched := 0
-	for _, ev := range feed.Events {
-		if !sonar.Mentions(ev, project) {
-			continue
-		}
-		matched++
-		if limit > 0 && len(kept) >= limit {
-			// Counted, not kept: Total stays the honest answer to "how much
-			// matched", which is what tells the reader the feed is cut.
-			continue
-		}
-		kept = append(kept, ev)
+	// Options come from the WHOLE log, before the filter: narrowing to one
+	// project must never remove the way back to the others.
+	return sonarRead{
+		Feed:     sonar.Filter(feed, project, limit),
+		Projects: sonar.Projects(feed.Events),
 	}
-	out.Feed.Events, out.Feed.Total = kept, matched
-	return out
 }
 
 // sonarAPI answers GET /api/sonar.

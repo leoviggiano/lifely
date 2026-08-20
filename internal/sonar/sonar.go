@@ -90,7 +90,9 @@ type Event struct {
 	// qualifier already removed, because the screen shows those in their own
 	// columns and repeating them made every row read "sonar(frota):
 	// sonar(frota): ...". Raw is still there for anyone who wants the line
-	// whole.
+	// whole. On an unparsed line there was no stamp or kind to remove, so
+	// Text is the trimmed line itself -- a consumer reading only Text still
+	// gets what the tribunal wrote rather than an empty string.
 	Text string
 	// Raw is the line exactly as written.
 	Raw string
@@ -298,27 +300,83 @@ func themeOf(kind string) Theme {
 	}
 }
 
-// word matches a project slug on a word boundary, so a filter for `ject`
-// does not also select every line that says `projects`.
-func word(slug string) *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(^|[^0-9A-Za-z_])` + regexp.QuoteMeta(slug) + `([^0-9A-Za-z_]|$)`)
-}
-
-// Mentions reports whether an event names a project.
+// Matcher decides whether an event belongs to one project.
+//
+// It is a type rather than a function because the caller runs it over the
+// whole tail on every poll -- a thousand-odd events every three seconds --
+// and compiling the same expression per event was measurable waste the gate
+// caught on the first review. Built once, asked many times.
 //
 // The match is on the whole raw line, and that is a deliberate choice with a
 // cost stated: the log declares a project structurally only on `portao` and
 // `notify` lines, while the prose lines that carry the actual news
 // ("DESPACHO ... frente A=lifely-018") name it in running text. Deriving the
 // project from structure alone would make the filter hide exactly the events
-// worth filtering for. So the filter reads the line, and the panel offers as
-// options only the real slugs it gets from /api/projects -- never a guess of
-// this package's own.
-func Mentions(ev Event, slug string) bool {
+// worth filtering for. The options offered on the screen are the other half
+// of the bargain: they come from Projects, which reads only what the log
+// DECLARES -- so a generous match never invents a project to click on.
+type Matcher struct {
+	// re is nil for the empty slug, which keeps everything. A nil regexp is
+	// the whole of that case: no branch elsewhere, no sentinel expression.
+	re *regexp.Regexp
+}
+
+// NewMatcher builds a matcher for one project slug. The empty slug matches
+// every event.
+//
+// The expression pins word boundaries by hand instead of using \b: the slugs
+// carry dashes (`no-mistakes`), and \b would fire in the middle of one.
+func NewMatcher(slug string) Matcher {
 	if slug == "" {
-		return true
+		return Matcher{}
 	}
-	return word(slug).MatchString(ev.Raw)
+	return Matcher{re: regexp.MustCompile(
+		`(?i)(^|[^0-9A-Za-z_])` + regexp.QuoteMeta(slug) + `([^0-9A-Za-z_]|$)`)}
+}
+
+// Matches reports whether the event names the matcher's project.
+func (m Matcher) Matches(ev Event) bool {
+	return m.re == nil || m.re.MatchString(ev.Raw)
+}
+
+// Filter narrows a feed to one project, keeping at most limit events.
+//
+// It lives here, next to Read, because it has to keep the feed's fields
+// AGREEING with each other and that is one invariant, not two. The first
+// version filtered Events and Total in the caller and left NewestAt at the
+// whole-log value: asking for `?project=lifely` on a day when lifely had been
+// quiet for twenty hours and ject had just moved rendered "newest 1min ago",
+// in the healthy colour, describing an event the reader could not see. The
+// age on the screen has to be the age OF THE FEED ON THE SCREEN.
+//
+// limit of zero or less keeps everything that matched.
+func Filter(feed Feed, slug string, limit int) Feed {
+	match := NewMatcher(slug)
+	out := feed
+	out.Events = make([]Event, 0, len(feed.Events))
+	out.Total = 0
+	out.NewestAt = time.Time{}
+
+	for _, ev := range feed.Events {
+		if !match.Matches(ev) {
+			continue
+		}
+		out.Total++
+		if out.NewestAt.IsZero() && ev.Parsed {
+			// Events arrive newest first, so the first stamped match is the
+			// newest one. An unparsed match carries no stamp and cannot
+			// answer "how old is this feed" -- it is skipped for the age and
+			// kept for the feed, which are different questions.
+			out.NewestAt = ev.At
+		}
+		if limit > 0 && len(out.Events) >= limit {
+			// Counted, not kept: Total stays the honest answer to "how much
+			// matched", which is what tells the reader the feed is cut.
+			continue
+		}
+		out.Events = append(out.Events, ev)
+	}
+	return out
 }
 
 // repoPath pulls the project out of the no-mistakes hook's environment dump,

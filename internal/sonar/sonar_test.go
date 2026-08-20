@@ -3,6 +3,7 @@ package sonar
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -263,7 +264,7 @@ func TestStaleAndAge(t *testing.T) {
 	}
 }
 
-func TestMentionsMatchesOnWordBoundaries(t *testing.T) {
+func TestMatcherMatchesOnWordBoundaries(t *testing.T) {
 	feed := Read(fixture, 0, time.Now())
 	var despacho, notify Event
 	for _, ev := range feed.Events {
@@ -277,20 +278,104 @@ func TestMentionsMatchesOnWordBoundaries(t *testing.T) {
 
 	// The prose line names both projects in running text. Deriving the
 	// project from structure alone would hide exactly this event.
-	if !Mentions(despacho, "lifely") {
+	if !NewMatcher("lifely").Matches(despacho) {
 		t.Error("the DESPACHO line names lifely and the filter missed it")
 	}
-	if !Mentions(despacho, "ject") {
+	if !NewMatcher("ject").Matches(despacho) {
 		t.Error("the DESPACHO line names ject and the filter missed it")
 	}
 	// `ject` inside `projects` is not a mention of the project.
-	if Mentions(Event{Raw: "2026-08-20T07:00:00 frota /Users/x/projects"}, "ject") {
+	if NewMatcher("ject").Matches(Event{Raw: "2026-08-20T07:00:00 frota /Users/x/projects"}) {
 		t.Error("`projects` matched the slug `ject`; the boundary guard is gone")
 	}
-	if !Mentions(notify, "lifely") {
+	// A slug with a dash is why the boundaries are written by hand: \b fires
+	// inside `no-mistakes` and would match on the `mistakes` half alone.
+	dashed := Event{Raw: "2026-08-20T07:00:00 frota repo=no-mistakes"}
+	if !NewMatcher("no-mistakes").Matches(dashed) {
+		t.Error("a slug with a dash did not match its own line")
+	}
+	if !NewMatcher("lifely").Matches(notify) {
 		t.Error("NM_REPO_PATH=.../projects/lifely is a mention of lifely")
 	}
-	if !Mentions(despacho, "") {
+	if !NewMatcher("").Matches(despacho) {
 		t.Error("an empty filter must keep everything")
+	}
+}
+
+// The bug this pins was found by the gate on the first review (run
+// 01M0FB7BT4, finding `newest-at-not-filtered`): the filter narrowed Events
+// and Total and left NewestAt describing the whole log, so a feed filtered to
+// a quiet project reported the age of a busy one -- in the healthy colour,
+// about an event the reader could not see.
+func TestFilterDatesTheFeedItActuallyReturns(t *testing.T) {
+	now := time.Date(2026, 8, 20, 8, 0, 0, 0, time.Local)
+	feed := Feed{
+		ReadAt: now,
+		Events: []Event{
+			// Newest first, as Read returns them.
+			{At: now.Add(-1 * time.Minute), Raw: "... portao ject: running", Parsed: true},
+			{At: now.Add(-20 * time.Hour), Raw: "... portao lifely: completed", Parsed: true},
+		},
+		Total:    2,
+		NewestAt: now.Add(-1 * time.Minute),
+	}
+
+	got := Filter(feed, "lifely", 0)
+	if len(got.Events) != 1 || got.Total != 1 {
+		t.Fatalf("len(Events)=%d Total=%d, want 1 and 1", len(got.Events), got.Total)
+	}
+	if want := now.Add(-20 * time.Hour); !got.NewestAt.Equal(want) {
+		t.Errorf("NewestAt = %v, want %v -- the age must be the age of the feed on the screen", got.NewestAt, want)
+	}
+	if !got.Stale() {
+		t.Error("a feed whose newest event is 20h old reported healthy")
+	}
+
+	// And the unfiltered read is unchanged by the filtering.
+	if !feed.NewestAt.Equal(now.Add(-1 * time.Minute)) {
+		t.Error("Filter mutated the feed it was given")
+	}
+}
+
+func TestFilterWithNoStampedMatchHasNoAge(t *testing.T) {
+	now := time.Date(2026, 8, 20, 8, 0, 0, 0, time.Local)
+	feed := Feed{
+		ReadAt:   now,
+		Events:   []Event{{Raw: "linha sem carimbo mencionando lifely"}},
+		Total:    1,
+		NewestAt: now,
+	}
+	got := Filter(feed, "lifely", 0)
+	if len(got.Events) != 1 {
+		t.Fatalf("len(Events) = %d, want 1: the unstamped line still travels", len(got.Events))
+	}
+	if !got.NewestAt.IsZero() {
+		t.Errorf("NewestAt = %v, want zero: no matched event carries a stamp", got.NewestAt)
+	}
+	if got.Stale() {
+		t.Error("a feed with no stamped event reported stale; empty and cold say different things")
+	}
+}
+
+func TestFilterCountsWhatTheLimitHides(t *testing.T) {
+	now := time.Date(2026, 8, 20, 8, 0, 0, 0, time.Local)
+	feed := Feed{ReadAt: now}
+	for i := 0; i < 5; i++ {
+		feed.Events = append(feed.Events, Event{
+			At: now.Add(-time.Duration(i) * time.Minute), Parsed: true,
+			Raw: "... portao lifely: run " + strconv.Itoa(i),
+		})
+	}
+	feed.Total = 5
+
+	got := Filter(feed, "lifely", 2)
+	if len(got.Events) != 2 {
+		t.Fatalf("len(Events) = %d, want 2", len(got.Events))
+	}
+	if got.Total != 5 {
+		t.Errorf("Total = %d, want 5: a limit hides events, it does not unmake them", got.Total)
+	}
+	if !got.NewestAt.Equal(now) {
+		t.Errorf("NewestAt = %v, want the newest match", got.NewestAt)
 	}
 }
