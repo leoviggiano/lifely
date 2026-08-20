@@ -379,8 +379,9 @@ func declaredNames(decl ast.Decl) []string {
 // parserPackage is the root of the one tree allowed to own a code-fence state
 // machine -- the package itself and anything under it (ownsTheGuard says why
 // the exemption covers the subtree and not a single directory).
-// The path is relative to the root doclint was pointed at, so the exemption
-// travels with the module rather than with anybody's working directory.
+// The path is relative to the MODULE root, not to the directory the lint was
+// pointed at (fenceCopies says why), so the exemption travels with the module
+// rather than with anybody's working directory or walk root.
 const parserPackage = "internal/md"
 
 // fenceDelimiter is the markdown code-fence marker.
