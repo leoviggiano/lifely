@@ -433,8 +433,18 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 		// reads, and swallowing a snippet out of it would summarise for him.
 		// The first version of this guard dropped it, which is the opposite of
 		// what the guard is for.
+		//
+		// Past an UNCLOSED fence nothing belongs to anything: every line after
+		// it arrives Fenced only because structure stopped being read, so
+		// appending them would give D1's block the whole text of D2 and show
+		// the founder one decision's surface attributed to another. The same
+		// carve-out founderBoard carries -- written twice because the two
+		// consumers decide separately by design, and measured by the gate the
+		// one round it existed in only one of them.
 		if ln.Kind == md.Fenced {
-			body = append(body, line)
+			if !pastUnclosedFence(doc, ln) {
+				body = append(body, line)
+			}
 			continue
 		}
 		if ln.Kind == md.Heading && ln.Level == 2 {

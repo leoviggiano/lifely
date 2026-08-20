@@ -677,3 +677,27 @@ func TestDecisionsUnclosedFenceIsAFinding(t *testing.T) {
 		t.Errorf("got %d decisions, want 1 -- the block read before the fence must survive", len(got))
 	}
 }
+
+// An unclosed fence in decisoes.md marks the source and stops there: D1 must
+// not carry D2's whole block as its own decision surface. Past the fence that
+// never closed nothing belongs to anything -- every remaining line arrives
+// Fenced only because structure stopped being read. The carve-out existed in
+// founderBoard for one round before it existed here, which is the half-copied
+// guard this whole ticket is about. (gate finding
+// `decisions-unclosed-fence-detail-bloat`)
+func TestUnclosedFenceDoesNotBleedAcrossDecisions(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · real\n\n**Status:** pendente\n\n```sh\n# nunca fecha\n\n## D2 · outra\n\n**Status:** pendente\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := decisions(dir, "lifely-028", time.Now(), true)
+	if len(got) == 0 {
+		t.Fatalf("no decision came back at all")
+	}
+	for _, p := range got {
+		if strings.Contains(p.Detail, "D2 · outra") {
+			t.Errorf("decision %q swallowed the next block: %q", p.Title, p.Detail)
+		}
+	}
+}

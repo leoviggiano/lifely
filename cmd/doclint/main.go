@@ -428,11 +428,14 @@ func fenceCopies(root string) ([]string, error) {
 	// correct code, the one failure this lint cannot afford (gate finding
 	// `doclint-exemption-root-relative`, run 01M0EG4DSK). Outside a module the
 	// walk root is the only answer there is, and it stands in.
-	base := root
-	if found, err := moduleRootAbove(root); err == nil {
+	base, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	if found, ferr := moduleRootAbove(root); ferr == nil {
 		base = found
 	}
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
 		}
@@ -477,8 +480,15 @@ func fenceCopies(root string) ([]string, error) {
 
 // parsedFile is one Go file kept between the two passes fenceCopies makes: the
 // package-level delimiter names have to be known before any function body in
-// that directory can be judged, and re-parsing to learn them twice would be the
-// same file read twice for no reason.
+// that directory can be judged, so the file is parsed once and held.
+//
+// This says nothing about the OTHER check. check and fenceCopies walk the tree
+// separately, with different parse modes, because they are separate rules that
+// have to be able to change without touching each other -- the cost is
+// milliseconds on a tree this size. An earlier version of this comment argued
+// against re-parsing as if it were a rule of the program rather than of this
+// function, which read as the program contradicting itself one level up (gate
+// finding `doclint-double-walk`).
 type parsedFile struct {
 	path string
 	dir  string
