@@ -710,6 +710,14 @@ func obsidianURI(path string) string {
 // Only structure decides: this used to match the whole body as one string,
 // so a `## Pendencias` inside a fenced example counted a clean round as
 // carrying work forward -- the same fence class the other scanners paid for.
+//
+// Level is not part of the marker: every heading the parser accepts counts,
+// `#` through `######`, so `### Pendentes` carries forward exactly like
+// `## Pendencias`. That is written down because the substring match this
+// replaced pinned level 2 by accident of the `"## "` it searched for, and
+// review kept reading the accident back as the rule -- five times, in five
+// different gate rounds. The contract itself is owned by FR7 in lifely-028's
+// specs/requirements.md in the ject vault: read it there, this only points.
 func carriesForward(doc *md.Doc) bool {
 	// These stay in Portuguese on purpose: they are DATA, not output. They
 	// match the vocabulary of the summaries this scanner reads, and

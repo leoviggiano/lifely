@@ -130,3 +130,9 @@ A spec é `lifely-001` no vault do ject
 (`specs/requirements.md`), aprovada pelo fundador em 18-08-2026. O registro
 da decisão está no `life.md` §17.3 (2.5.24). Divergência entre este README e a
 spec: a spec vence.
+
+Tickets posteriores trazem specs próprias, e a numeração `FR` recomeça em cada
+uma. `spec FR7` sem ticket, nos comentários deste repo, é sempre o do
+`lifely-001` — ciclo de vida do servidor. O contrato do marcador de rodada
+atravessada (A3, `carriesForward`) é o **FR7 do `lifely-028`**: outro ticket,
+outro FR7, e é por isso que o comentário que o cita nomeia o ticket.
