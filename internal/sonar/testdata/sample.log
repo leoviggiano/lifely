@@ -1,0 +1,7 @@
+2026-08-18T17:30:52 portao ject:  cancelled ject-070-emendas-e14 d626c8f6 2026-08-18 17:17
+2026-08-18T17:33:56 frota runs=5 socks=6
+2026-08-18T18:00 sonar(frota): lifely 2 no portao/fila pronta · ject r27 rodando · ferramentas 6 fechados+2 decisoes cumpridas · megumin bot-020 aparcado — sem bloqueante do fundador
+uma linha que o plantao escreveu sem carimbo -- history real, nao lixo
+2026-08-19T01:09:57 notify NM_EVENT=step_completed NM_HOME=/Users/leoviggiano/.no-mistakes NM_REPO_PATH=/Users/leoviggiano/projects/lifely NM_RUN_ID=01M0C2N1VKR2TQFZ2VHVJP1HM8 NM_STATUS=awaiting_approval NM_STEP=review
+2026-08-19T15:56:00 portao(lifely) 01M0DMHBF5 COMPLETED passed: origin/main avancou a c34a9e6f (respond rodado pelo fundador a mao); executor do 029 retomado para sync guiado + relatorio + finish
+2026-08-20T07:14:00 DESPACHO (2.5.31; ritmo "fila normal" do fundador 07:1x): ject-096 -> executor opus · PILOTO PARALELISMO ARMADO: frente A=lifely-018, frente B=lifely-038 (frentes atualizadas a fila de hoje; 011/017 nao-ready) — 3 executores em voo

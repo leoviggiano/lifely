@@ -209,6 +209,7 @@ func (p *Panel) Register(s *fuego.Server) {
 	fuego.Get(s, "/api/pendencies/{id...}", p.one)
 	fuego.Get(s, "/api/sources", p.sources)
 	fuego.Get(s, "/api/projects", p.projects)
+	fuego.Get(s, "/api/sonar", p.sonarAPI)
 }
 
 func (p *Panel) list(c fuego.ContextNoBody) (listResponse, error) {

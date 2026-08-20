@@ -58,6 +58,12 @@ func New(port int, owner string, panel *Panel) http.Handler {
 	// desabilitada").
 	s.SpecHandler(s.Engine)
 	mux := s.Mux
+	// See registerPages: a nil panel is the smoke-test server, which serves
+	// /healthz and must not touch the sources -- and a page whose whole
+	// content is a read of the tribunal's log would.
+	if panel != nil {
+		registerPages(mux, panel)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, Health{
 			Status:  "ok",
