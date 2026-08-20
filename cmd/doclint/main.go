@@ -375,7 +375,9 @@ func declaredNames(decl ast.Decl) []string {
 	return nil
 }
 
-// parserPackage is the one package allowed to own a code-fence state machine.
+// parserPackage is the root of the one tree allowed to own a code-fence state
+// machine -- the package itself and anything under it (ownsTheGuard says why
+// the exemption covers the subtree and not a single directory).
 // The path is relative to the root doclint was pointed at, so the exemption
 // travels with the module rather than with anybody's working directory.
 const parserPackage = "internal/md"

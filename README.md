@@ -104,7 +104,7 @@ checagem só anda as declarações de topo do arquivo). O `cmd/doclint` diz por
 que isso é lint, e não suíte, e o que fica fora do alcance.
 
 O `doclint` tem uma **segunda checagem**: ele recusa uma máquina de estado de
-cerca escrita fora de `internal/md`, que é o único lugar onde essa guarda pode
+cerca escrita fora da árvore de `internal/md`, a única onde essa guarda pode
 morar. Três scanners já carregaram cópias da mesma guarda e as cópias
 divergiram duas vezes; consolidá-las conserta as instâncias, e só uma trava
 mecânica impede a quarta cópia. A assinatura que ela procura são as duas
