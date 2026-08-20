@@ -259,6 +259,63 @@ func TestSonarPageOnAMissingLogSaysSo(t *testing.T) {
 	}
 }
 
+// The gate's first review found this at the API edge (run 01M0FB7BT4,
+// `newest-at-not-filtered`), so the guard lives at the same edge: the age the
+// panel reports has to be the age of the events the panel is showing.
+func TestSonarFilteredFeedIsDatedByItsOwnEvents(t *testing.T) {
+	// lifely went quiet 20h ago; ject moved a minute before the read.
+	now := time.Date(2026, 8, 20, 8, 0, 0, 0, time.Local)
+	log := now.Add(-20*time.Hour).Format("2006-01-02T15:04:05") + " portao lifely:  completed lifely-018\n" +
+		now.Add(-1*time.Minute).Format("2006-01-02T15:04:05") + " portao ject:  running ject-096\n"
+
+	root := t.TempDir()
+	path := filepath.Join(root, sonar.LogRelPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(log), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := NewPanel(root, func(args ...string) ([]byte, error) { return []byte(`{"tickets":[]}`), nil })
+	p.now = func() time.Time { return now }
+	h := New(7777, "manual", p)
+
+	_, body := get(t, h, "/api/sonar?project=lifely")
+	if got := body["newest_at"].(string); !strings.HasPrefix(got, now.Add(-20*time.Hour).Format("2006-01-02T15:04")) {
+		t.Errorf("newest_at = %s, want the lifely event's stamp -- not an event outside `events`", got)
+	}
+	if !body["stale"].(bool) {
+		t.Error("stale = false for a filtered feed whose newest event is 20h old")
+	}
+
+	// And on the screen, where the colour is the claim.
+	_, page := html(t, h, "/sonar?project=lifely")
+	if !strings.Contains(page, "the sonar is cold") {
+		t.Error("the page does not say the filtered feed is cold")
+	}
+	if strings.Contains(page, "just now") {
+		t.Error("the page reports `just now` for a feed whose newest event is 20h old")
+	}
+}
+
+// A tail of nothing but unstamped lines has no age at all. Saying "just now"
+// there would be the ageing bar lying -- the package separates empty from
+// cold, and the screen must not collapse them back.
+func TestSonarPageWithNoStampedEventClaimsNoAge(t *testing.T) {
+	p, _ := sonarFixture(t, "uma linha sem carimbo nenhum\noutra igual\n")
+	_, page := html(t, New(7777, "manual", p), "/sonar")
+	if !strings.Contains(page, "no stamped event") {
+		t.Error("the page does not say the feed carries no stamp")
+	}
+	if strings.Contains(page, "just now") {
+		t.Error("the page claims `just now` for a feed with no stamped event")
+	}
+	// The lines themselves are still there, raw.
+	if !strings.Contains(page, "uma linha sem carimbo nenhum") {
+		t.Error("the unstamped lines were dropped")
+	}
+}
+
 func TestStaticAssetsAreServed(t *testing.T) {
 	// web.Assets had no caller at all before this ticket: the embed existed
 	// and nothing read it. This pins that the binary now serves what it

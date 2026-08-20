@@ -76,9 +76,16 @@
     <strong>{{ len .Events }}</strong>
     <span class="muted">of {{ .Feed.Total }} event{{ if ne .Feed.Total 1 }}s{{ end }}</span>
     {{ if .Project }}<span class="muted">·</span> <strong>{{ .Project }}</strong>{{ end }}
-    <span class="muted">· newest</span>
-    <span class="{{ if .Feed.Stale }}theme-gate{{ else }}theme-founder{{ end }}">{{ since .Age }}</span>
-    {{ if .Feed.Stale }}<span class="theme-gate">— the sonar is cold</span>{{ end }}
+    {{/* Um feed cujos eventos não têm carimbo nenhum não tem idade — e
+         "just now" na cor saudável seria a barra que envelhece mentindo.
+         O pacote separa vazio de frio; a tela não pode colapsar os dois. */}}
+    {{ if .Feed.NewestAt.IsZero }}
+      <span class="muted">· no stamped event to date this feed</span>
+    {{ else }}
+      <span class="muted">· newest</span>
+      <span class="{{ if .Feed.Stale }}theme-gate{{ else }}theme-founder{{ end }}">{{ since .Age }}</span>
+      {{ if .Feed.Stale }}<span class="theme-gate">— the sonar is cold</span>{{ end }}
+    {{ end }}
     {{ if .Cut }}<span class="muted">· cut at {{ .Limit }}</span>{{ end }}
   {{ end }}
 </p>
