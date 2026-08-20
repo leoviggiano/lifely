@@ -41,9 +41,11 @@
 // slipping in under it is not a misplacement here; it is still flagged when
 // its first word names a symbol declared somewhere else in the file.
 //
-// Neither check reads source the Go tool itself ignores: the walk skips any
-// directory whose name starts with '.' or '_' (skipIfHidden says why, and why
-// the root the lint is pointed AT is the exception).
+// Neither check reads a directory the Go tool leaves out of `./...`: the walk
+// skips any whose name starts with '.' or '_', and any named testdata or
+// vendor (skipIgnoredDir says why, and why the root the lint is pointed AT is
+// the exception). Those four rules and no more: the tool also drops files by
+// build constraint, and a walk over directory names cannot see that.
 package main
 
 import (
@@ -115,7 +117,7 @@ func check(root string) ([]string, error) {
 			return err
 		}
 		if d.IsDir() {
-			return skipIfHidden(root, path, d)
+			return skipIgnoredDir(root, path, d)
 		}
 		if !strings.HasSuffix(path, ".go") {
 			return nil
@@ -457,7 +459,7 @@ func fenceCopies(root string) ([]string, error) {
 			return err
 		}
 		if d.IsDir() {
-			return skipIfHidden(root, path, d)
+			return skipIgnoredDir(root, path, d)
 		}
 		if !strings.HasSuffix(path, ".go") {
 			return nil
@@ -649,10 +651,16 @@ func selfNegation(as *ast.AssignStmt) token.Pos {
 	return as.Pos()
 }
 
-// skipIfHidden tells the walk to skip a directory the Go tool itself ignores:
-// one whose name starts with '.' or '_'. Both checks here walk with
-// filepath.WalkDir, which has no such rule, so they used to read files the
-// build never compiles.
+// skipIgnoredDir tells the walk to skip a directory the Go tool leaves out of
+// `./...` by NAME: one whose name begins with '.' or '_', and one named
+// testdata or vendor. Both checks here walk with filepath.WalkDir, which has no
+// such rule, so they used to read files the build never compiles.
+//
+// Those rules and no more, deliberately. The tool ignores plenty this function
+// cannot: files dropped by build constraint, by GOOS/GOARCH suffix, by
+// //go:build. A directory walk reaches none of them, and a claim wider than the
+// code is the exact defect this lint was written to catch -- so the doc
+// enumerates instead of saying "whatever the Go tool ignores".
 //
 // Measured, and it was not hypothetical: a nested git worktree at
 // .claude/worktrees/ held the pre-consolidation copy of internal/scan, and
@@ -661,14 +669,24 @@ func selfNegation(as *ast.AssignStmt) token.Pos {
 // gate stays green -- over source the compiler cannot see -- is the false
 // positive this whole ticket exists to kill.
 //
-// The root itself is never skipped: pointing the lint AT a dot-directory is an
-// explicit request to check it, not an accident of walking past.
-func skipIfHidden(root, path string, d os.DirEntry) error {
+// testdata and vendor are the same failure, found one ticket later on the
+// prefix-only version of this function: a fixture holding the fence machine
+// under internal/scan/testdata took `go run ./cmd/doclint .` to exit 1 with
+// `go build ./...` and `go vet ./...` green over it (measured, lifely-033).
+// The cost was already being paid -- main_test.go writes its fixtures to a
+// temp dir, and used to say this walk was the reason.
+//
+// The root itself is never skipped: pointing the lint AT an ignored directory
+// is an explicit request to check it, not an accident of walking past.
+func skipIgnoredDir(root, path string, d os.DirEntry) error {
 	if path == root {
 		return nil
 	}
 	name := d.Name()
 	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return filepath.SkipDir
+	}
+	if name == "testdata" || name == "vendor" {
 		return filepath.SkipDir
 	}
 	return nil
