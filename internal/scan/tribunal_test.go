@@ -608,7 +608,9 @@ func TestUnclosedFenceDoesNotSwallowTheRestOfTheBoard(t *testing.T) {
 // all count, so `### Pendentes` carries a round forward exactly like
 // `## Pendencias`. The substring match this replaced searched for `"## "`,
 // which pinned level 2 by accident of the string it looked for; the accident
-// kept being read back as the rule. (FR7)
+// kept being read back as the rule. The contract is FR7 of LIFELY-028, in its
+// specs/requirements.md in the ject vault -- a bare `spec FR7` elsewhere in
+// this repo means lifely-001, whose FR7 is the server lifecycle.
 func TestCarriesForwardAtEveryHeadingLevel(t *testing.T) {
 	for _, marker := range []string{"#", "##", "###", "####", "#####", "######"} {
 		root := t.TempDir()
