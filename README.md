@@ -109,12 +109,15 @@ morar. Três scanners já carregaram cópias da mesma guarda e as cópias
 divergiram duas vezes; consolidá-las conserta as instâncias, e só uma trava
 mecânica impede a quarta cópia. A assinatura que ela procura são as duas
 metades inseparáveis da máquina **na mesma função**: o delimitador de cerca e
-um booleano que se nega a si mesmo (`x = !x`). As duas, ou nada — fixture de
-teste com markdown cercado é dado, não guarda, e booleano que alterna por outro
-motivo não é cerca de ninguém. O delimitador conta escrito na linha **ou** içado
-para uma constante de pacote (o nome é procurado no diretório inteiro, que é o
-alcance de um pacote em Go): ler só o literal deixava a cópia a um refactor de
-ficar invisível.
+um valor que se nega a si mesmo (`x = !x`). As duas, ou nada — fixture de teste
+com markdown cercado é dado, não guarda, e valor que alterna por outro motivo
+não é cerca de ninguém. Os dois lados da negação são comparados **como
+escritos**, não pelo tipo do nó: `s.inFence = !s.inFence` conta igual, porque
+exigir um identificador puro deixava passar reta a máquina que guarda o flag
+num campo. O delimitador conta escrito na linha **ou** içado para uma constante
+de pacote (o nome é procurado no diretório inteiro, que é o alcance de um
+pacote em Go): ler só o literal deixava a cópia a um refactor de ficar
+invisível.
 
 ## Onde mora a verdade
 
