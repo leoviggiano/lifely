@@ -714,3 +714,31 @@ func TestRunExitsOneOnCopiedFenceGuard(t *testing.T) {
 		t.Fatalf("stderr does not report the fence count: %q", got)
 	}
 }
+
+// TestFenceCopiesAcceptsASubpackageOfTheParser holds the exemption's shape: it
+// covers the parser's whole tree, because splitting md.go into internal/md/fence
+// must not turn the owner of the guard into a copy of it.
+func TestFenceCopiesAcceptsASubpackageOfTheParser(t *testing.T) {
+	root := writeTree(t, map[string]string{"internal/md/fence/fence.go": fenceMachineSource})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 0 {
+		t.Fatalf("want no copy reported inside the parser's tree, got %v", copies)
+	}
+}
+
+// TestFenceCopiesRejectsALookalikeNeighbour pins the other edge of the same
+// rule: a package whose path merely STARTS with the parser's name is not the
+// parser and gets no exemption.
+func TestFenceCopiesRejectsALookalikeNeighbour(t *testing.T) {
+	root := writeTree(t, map[string]string{"internal/mdx/scan.go": fenceMachineSource})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 1 {
+		t.Fatalf("want the lookalike package reported, got %d: %v", len(copies), copies)
+	}
+}

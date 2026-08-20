@@ -436,14 +436,22 @@ func fenceCopies(root string) ([]string, error) {
 	return problems, err
 }
 
-// ownsTheGuard reports whether path is the parser package itself, the one place
-// the fence state machine is allowed to live.
+// ownsTheGuard reports whether path lives in the parser package's tree, the one
+// place the fence state machine is allowed to live.
+//
+// The exemption covers the SUBTREE, not one directory: splitting the machine
+// into internal/md/fence is the natural move the day md.go grows, and an
+// exemption pinned to a single level would report the owner of the guard as a
+// copy of it. Reporting correct code is the failure this lint cannot afford --
+// it runs in commands.lint with no suppression directive (gate finding
+// `ownstheguard-exact-dir`, run 01M0EE3B7R).
 func ownsTheGuard(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return false
 	}
-	return filepath.ToSlash(filepath.Dir(rel)) == parserPackage
+	dir := filepath.ToSlash(filepath.Dir(rel))
+	return dir == parserPackage || strings.HasPrefix(dir, parserPackage+"/")
 }
 
 // fenceMachine returns the positions of a fence state machine's two halves
