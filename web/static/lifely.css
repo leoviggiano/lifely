@@ -18,7 +18,113 @@
 
 body {
   margin: 0;
+  padding: 1.5rem clamp(1rem, 4vw, 3rem) 3rem;
   background: var(--lifely-bg);
   color: var(--lifely-text);
   font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+/* --- Feed do sonar (lifely-018) -----------------------------------------
+ *
+ * A primeira tela que o binário serve. As classes `theme-*` são a tradução
+ * direta dos tokens acima: quem pinta um evento escolhe o SIGNIFICADO
+ * (portão, decisão, trabalho de IA, ilegível) e a cor vem junto — é o que a
+ * FR4.10 exige quando diz que a semântica de cor é requisito.
+ */
+.muted { color: var(--lifely-muted); }
+
+.theme-founder { color: var(--lifely-accent); }
+.theme-agent   { color: var(--lifely-ia); }
+.theme-gate    { color: var(--lifely-gate); }
+.theme-broken  { color: var(--lifely-broken); }
+
+.topbar h1 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin: 0 0 0.2rem;
+  color: var(--lifely-accent);
+}
+
+.topbar p { margin: 0 0 1.2rem; font-size: 0.85rem; }
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: var(--lifely-muted);
+}
+
+.filters select,
+.filters button {
+  background: var(--lifely-surface);
+  color: var(--lifely-text);
+  border: 1px solid #3a382f;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+}
+
+.status {
+  font-size: 0.85rem;
+  margin: 0 0 0.8rem;
+}
+
+.events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid #302e28;
+}
+
+.event {
+  display: grid;
+  grid-template-columns: 6.5rem 9rem 1fr;
+  gap: 0.75rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid #302e28;
+  font-size: 0.85rem;
+  align-items: baseline;
+}
+
+@media (max-width: 40rem) {
+  /* Numa janela estreita a grade de três colunas espremia o texto do evento
+   * a duas palavras por linha — o feed existe para ser lido, não para caber.
+   */
+  .event { grid-template-columns: 1fr; gap: 0.15rem; }
+}
+
+.event .when {
+  color: var(--lifely-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.event .kind {
+  font-weight: 600;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.event .topic { font-weight: 400; opacity: 0.75; }
+
+.event .text {
+  color: var(--lifely-text);
+  overflow-wrap: anywhere;
+}
+
+/* Linha que o parser não leu: aparece crua, marcada, e o vermelho diz por
+ * quê. Nunca sumir em silêncio é constraint do ticket, não estilo. */
+.event.unparsed .text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  color: var(--lifely-broken);
+}
+
+.source { font-size: 0.75rem; margin-top: 1rem; }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

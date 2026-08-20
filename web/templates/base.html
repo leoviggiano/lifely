@@ -1,10 +1,16 @@
 {{/*
-  Casca do painel. As telas (Mesa, Menu, Projeto, Ticket, Fonte, Detalhe,
-  Despacho, Vazio) chegam nos tickets de UI; este arquivo só prova que o
-  binário serve os assets embutidos, sem toolchain de JS (FR4.11).
+  Casca do painel. As oito telas da FR4 (Mesa, Menu, Projeto, Ticket, Fonte,
+  Detalhe, Despacho, Vazio) chegam nos tickets de UI; a primeira tela que o
+  binário de fato serve é o feed do sonar (lifely-018), que entra pelo bloco
+  `content`. Sem toolchain de JS (FR4.11).
+
+  `lang="en"`: o texto de interface do produto é inglês por lei da casa
+  (v2.23-v2.24). A casca declarava pt-BR desde quando não servia texto
+  nenhum; agora serve, e um leitor de tela pronunciaria inglês com fonemas
+  portugueses.
 */}}
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />

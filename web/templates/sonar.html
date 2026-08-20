@@ -1,0 +1,106 @@
+{{/*
+  A tela do feed do sonar (lifely-018).
+
+  Um renderizador só: a página inteira e o fragmento que ela busca a cada
+  poucos segundos usam o mesmo bloco `feed`. Duas implementações de "como um
+  evento aparece" divergiriam no primeiro dia.
+
+  O texto de interface é inglês por lei da casa (v2.23-v2.24); o comentário
+  é pt-BR como o resto da documentação de produto.
+*/}}
+{{ define "content" }}
+<header class="topbar">
+  <h1>sonar <span class="muted">· fleet history</span></h1>
+  <p class="muted">
+    Written by the tribunal, read here. lifely never writes this log.
+  </p>
+</header>
+
+<form class="filters" method="get" action="/sonar">
+  <label for="project">project</label>
+  <select id="project" name="project" onchange="this.form.submit()">
+    <option value="">all</option>
+    {{ range .Projects }}
+      <option value="{{ . }}" {{ if eq . $.Project }}selected{{ end }}>{{ . }}</option>
+    {{ end }}
+  </select>
+  <input type="hidden" name="limit" value="{{ .Limit }}" />
+  <noscript><button type="submit">filter</button></noscript>
+</form>
+
+<div id="feed" data-poll="{{ .Poll }}">
+  {{ template "feed" . }}
+</div>
+
+<script>
+  // Short polling, no JS toolchain and no vendored library: the ticket's DoD
+  // allows "tempo real ou polling curto", and FR4.11's hard requirement is
+  // that `git clone` + `go build` produces the whole app. The markup comes
+  // from the same Go template that painted the first screen, so this script
+  // only swaps it in.
+  (function () {
+    var feed = document.getElementById("feed");
+    var every = (parseInt(feed.dataset.poll, 10) || 3) * 1000;
+    var busy = false;
+    function refresh() {
+      if (busy || document.hidden) return;
+      busy = true;
+      fetch("/sonar/feed" + window.location.search, { headers: { Accept: "text/html" } })
+        .then(function (r) { return r.ok ? r.text() : null; })
+        .then(function (html) { if (html !== null) feed.innerHTML = html; })
+        .catch(function () { /* the daemon went away; the next tick retries */ })
+        .finally(function () { busy = false; });
+    }
+    setInterval(refresh, every);
+    document.addEventListener("visibilitychange", refresh);
+  })();
+</script>
+{{ end }}
+
+{{ define "feed" }}
+<p class="status">
+  {{ if .Feed.Err }}
+    <span class="theme-broken">unreadable</span>
+    {{ .Feed.Err }}
+  {{ else if .Feed.Missing }}
+    <span class="muted">no sonar log at</span> <code>{{ .Feed.Path }}</code>
+    <span class="muted">— nothing has been written here yet.</span>
+  {{ else if not .Events }}
+    {{ if .Project }}
+      <span class="muted">no event mentions</span> <strong>{{ .Project }}</strong>
+      <span class="muted">in the log's recent tail.</span>
+    {{ else }}
+      <span class="muted">the log is empty.</span>
+    {{ end }}
+  {{ else }}
+    <strong>{{ len .Events }}</strong>
+    <span class="muted">of {{ .Feed.Total }} event{{ if ne .Feed.Total 1 }}s{{ end }}</span>
+    {{ if .Project }}<span class="muted">·</span> <strong>{{ .Project }}</strong>{{ end }}
+    <span class="muted">· newest</span>
+    <span class="{{ if .Feed.Stale }}theme-gate{{ else }}theme-founder{{ end }}">{{ since .Age }}</span>
+    {{ if .Feed.Stale }}<span class="theme-gate">— the sonar is cold</span>{{ end }}
+    {{ if .Cut }}<span class="muted">· cut at {{ .Limit }}</span>{{ end }}
+  {{ end }}
+</p>
+
+<ol class="events">
+  {{ range .Events }}
+    <li class="event theme-{{ .Theme }}{{ if not .Parsed }} unparsed{{ end }}">
+      <span class="when">{{ stamp .At }}</span>
+      {{ if .Parsed }}
+        <span class="kind">{{ .Kind }}{{ if .Topic }}<span class="topic">({{ .Topic }})</span>{{ end }}</span>
+        <span class="text">{{ .Text }}</span>
+      {{ else }}
+        {{/* Uma linha que o parser não leu aparece CRUA e marcada: nunca
+             descartada em silêncio (constraint do ticket). */}}
+        <span class="kind">unparsed</span>
+        <code class="text">{{ .Raw }}</code>
+      {{ end }}
+    </li>
+  {{ end }}
+</ol>
+
+<p class="source muted">
+  source: <code>{{ .Feed.Path }}</code> · read at {{ stamp .Feed.ReadAt }}
+</p>
+{{ end }}

@@ -47,6 +47,9 @@ func New(port int, owner string, panel *Panel) http.Handler {
 	if panel != nil {
 		panel.Register(s)
 	}
+	// See registerPages: nil panel means the smoke-test server, which serves
+	// /healthz and must not touch the sources -- and a page whose whole
+	// content is a read of the tribunal's log would.
 	// Mount the spec route by hand. fuego does it inside Run(), which this
 	// daemon never calls -- it hands the mux to its own http.Server so the
 	// loopback guard and the shutdown path stay ours. Without this the whole
@@ -58,6 +61,9 @@ func New(port int, owner string, panel *Panel) http.Handler {
 	// desabilitada").
 	s.SpecHandler(s.Engine)
 	mux := s.Mux
+	if panel != nil {
+		registerPages(mux, panel)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, Health{
 			Status:  "ok",
