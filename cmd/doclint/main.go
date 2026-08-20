@@ -382,10 +382,14 @@ func declaredNames(decl ast.Decl) []string {
 // travels with the module rather than with anybody's working directory.
 const parserPackage = "internal/md"
 
-// fenceDelimiter is the markdown code-fence marker. It sits at package level on
-// purpose: fenceCopies only reads function BODIES, so naming the delimiter here
-// keeps this lint from reporting itself -- and the day it moves inside a
-// function, the copy it becomes is one this check would have to answer for.
+// fenceDelimiter is the markdown code-fence marker.
+//
+// Naming it here does NOT hide it from the check: since the const bypass was
+// closed, a package-level name holding the delimiter counts exactly like an
+// inline literal, this file included. What keeps this lint from reporting
+// itself is the other half of the signature -- no function here flips a boolean
+// onto itself, because none of them tracks fence state. The day one does, this
+// check will have to answer for it, which is the point.
 const fenceDelimiter = "```"
 
 // fenceCopies reports every hand-written copy of the code-fence state machine
@@ -407,8 +411,15 @@ const fenceDelimiter = "```"
 // read the literal; a bool that toggles for any other reason is nobody's fence.
 // A lint that rejects correct code is worse than no lint, and this one is wired
 // into commands.lint with no suppression directive.
+// The delimiter counts whether it is written inline or hoisted to a package
+// constant: reading only inline literals left the copy one refactor away from
+// invisible, and hoisting the delimiter is precisely the idiom this file itself
+// uses (gate finding `fence-lint-const-bypass`, run 01M0EET1HB). Package-level
+// names are collected per DIRECTORY, because that is the scope a Go package
+// spans -- the constant and the copy that uses it need not share a file.
 func fenceCopies(root string) ([]string, error) {
-	var problems []string
+	var files []parsedFile
+	named := map[string]map[string]bool{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
@@ -421,21 +432,79 @@ func fenceCopies(root string) ([]string, error) {
 		if perr != nil {
 			return nil // not our business: the compiler reports these
 		}
-		for _, decl := range file.Decls {
+		dir := filepath.Dir(path)
+		files = append(files, parsedFile{path: path, dir: dir, fset: fset, file: file})
+		for name := range delimiterNames(file) {
+			if named[dir] == nil {
+				named[dir] = map[string]bool{}
+			}
+			named[dir][name] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var problems []string
+	for _, pf := range files {
+		for _, decl := range pf.file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
-			fence, flip := fenceMachine(fn.Body)
+			fence, flip := fenceMachine(fn.Body, named[pf.dir])
 			if !flip.IsValid() {
 				continue
 			}
 			problems = append(problems, fmt.Sprintf("%s:%d: %s toggles a fence state of its own (delimiter at line %d); %s owns that guard",
-				path, fset.Position(flip).Line, fn.Name.Name, fset.Position(fence).Line, parserPackage))
+				pf.path, pf.fset.Position(flip).Line, fn.Name.Name, pf.fset.Position(fence).Line, parserPackage))
 		}
-		return nil
-	})
-	return problems, err
+	}
+	return problems, nil
+}
+
+// parsedFile is one Go file kept between the two passes fenceCopies makes: the
+// package-level delimiter names have to be known before any function body in
+// that directory can be judged, and re-parsing to learn them twice would be the
+// same file read twice for no reason.
+type parsedFile struct {
+	path string
+	dir  string
+	fset *token.FileSet
+	file *ast.File
+}
+
+// delimiterNames returns the package-level constant and variable names in one
+// file whose value carries the fence delimiter. A local declaration needs no
+// entry here: its literal sits inside the function body, where fenceMachine
+// already walks over it.
+func delimiterNames(file *ast.File) map[string]bool {
+	out := map[string]bool{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range value.Names {
+				if i >= len(value.Values) {
+					continue
+				}
+				lit, ok := value.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				if strings.Contains(literalValue(lit), fenceDelimiter) {
+					out[name.Name] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 // ownsTheGuard reports whether path lives in the parser package's tree, the one
@@ -460,9 +529,17 @@ func ownsTheGuard(root, path string) bool {
 // inside one function body: where the delimiter is named, and where a boolean
 // flips on itself. Both positions come back invalid unless BOTH halves are
 // present, because either one alone is ordinary code.
-func fenceMachine(body *ast.BlockStmt) (fence, flip token.Pos) {
+//
+// The delimiter is named either by an inline literal or by one of the
+// package-level names in delimiters, which is what closes the hoist-it-to-a-
+// constant bypass.
+func fenceMachine(body *ast.BlockStmt, delimiters map[string]bool) (fence, flip token.Pos) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch node := n.(type) {
+		case *ast.Ident:
+			if !fence.IsValid() && delimiters[node.Name] {
+				fence = node.Pos()
+			}
 		case *ast.BasicLit:
 			if !fence.IsValid() && node.Kind == token.STRING && strings.Contains(literalValue(node), fenceDelimiter) {
 				fence = node.Pos()

@@ -108,10 +108,13 @@ cerca escrita fora da árvore de `internal/md`, a única onde essa guarda pode
 morar. Três scanners já carregaram cópias da mesma guarda e as cópias
 divergiram duas vezes; consolidá-las conserta as instâncias, e só uma trava
 mecânica impede a quarta cópia. A assinatura que ela procura são as duas
-metades inseparáveis da máquina **na mesma função**: um literal com o
-delimitador de cerca e um booleano que se nega a si mesmo (`x = !x`). As duas,
-ou nada — fixture de teste com markdown cercado é dado, não guarda, e booleano
-que alterna por outro motivo não é cerca de ninguém.
+metades inseparáveis da máquina **na mesma função**: o delimitador de cerca e
+um booleano que se nega a si mesmo (`x = !x`). As duas, ou nada — fixture de
+teste com markdown cercado é dado, não guarda, e booleano que alterna por outro
+motivo não é cerca de ninguém. O delimitador conta escrito na linha **ou** içado
+para uma constante de pacote (o nome é procurado no diretório inteiro, que é o
+alcance de um pacote em Go): ler só o literal deixava a cópia a um refactor de
+ficar invisível.
 
 ## Onde mora a verdade
 

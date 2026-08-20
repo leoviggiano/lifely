@@ -742,3 +742,96 @@ func TestFenceCopiesRejectsALookalikeNeighbour(t *testing.T) {
 		t.Fatalf("want the lookalike package reported, got %d: %v", len(copies), copies)
 	}
 }
+
+// hoistedFenceMachineSource is the copy one refactor away from invisible: the
+// delimiter lives in a package-level constant instead of inline.
+const hoistedFenceMachineSource = "package fixture\n\n" +
+	"import \"strings\"\n\n" +
+	"// fence is the markdown code fence.\n" +
+	"const fence = \"```\"\n\n" +
+	"// scan walks lines and skips the fenced ones.\n" +
+	"func scan(lines []string) int {\n" +
+	"\tinFence := false\n" +
+	"\tn := 0\n" +
+	"\tfor _, line := range lines {\n" +
+	"\t\tif strings.HasPrefix(line, fence) {\n" +
+	"\t\t\tinFence = !inFence\n" +
+	"\t\t\tcontinue\n" +
+	"\t\t}\n" +
+	"\t\tif inFence {\n" +
+	"\t\t\tcontinue\n" +
+	"\t\t}\n" +
+	"\t\tn++\n" +
+	"\t}\n" +
+	"\treturn n\n" +
+	"}\n"
+
+// TestFenceCopiesRejectsAHoistedDelimiter closes the bypass the gate measured:
+// hoisting the delimiter to a package constant must not buy invisibility.
+func TestFenceCopiesRejectsAHoistedDelimiter(t *testing.T) {
+	root := writeTree(t, map[string]string{"internal/scan/tribunal.go": hoistedFenceMachineSource})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 1 {
+		t.Fatalf("want the hoisted copy reported, got %d: %v", len(copies), copies)
+	}
+}
+
+// TestFenceCopiesRejectsADelimiterHoistedToAnotherFile pins the scope of the
+// name lookup: a Go package spans a directory, so the constant and the copy
+// using it need not share a file.
+func TestFenceCopiesRejectsADelimiterHoistedToAnotherFile(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"internal/scan/fence.go": "package fixture\n\n// fence is the markdown code fence.\nconst fence = \"```\"\n",
+		"internal/scan/tribunal.go": "package fixture\n\n" +
+			"import \"strings\"\n\n" +
+			"// scan walks lines and skips the fenced ones.\n" +
+			"func scan(lines []string) int {\n" +
+			"\tinFence := false\n" +
+			"\tn := 0\n" +
+			"\tfor _, line := range lines {\n" +
+			"\t\tif strings.HasPrefix(line, fence) {\n" +
+			"\t\t\tinFence = !inFence\n" +
+			"\t\t\tcontinue\n" +
+			"\t\t}\n" +
+			"\t\tn++\n" +
+			"\t}\n" +
+			"\treturn n\n" +
+			"}\n",
+	})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 1 {
+		t.Fatalf("want the cross-file hoisted copy reported, got %d: %v", len(copies), copies)
+	}
+}
+
+// TestFenceCopiesIgnoresAnUnrelatedConstant holds the false-positive line for
+// the name lookup: a package constant that is not a fence delimiter lends its
+// name to nothing.
+func TestFenceCopiesIgnoresAnUnrelatedConstant(t *testing.T) {
+	src := "package fixture\n\n" +
+		"// bullet is the list marker.\n" +
+		"const bullet = \"- \"\n\n" +
+		"// blink alternates a lamp.\n" +
+		"func blink(times int) bool {\n" +
+		"\ton := false\n" +
+		"\tfor i := 0; i < times; i++ {\n" +
+		"\t\t_ = bullet\n" +
+		"\t\ton = !on\n" +
+		"\t}\n" +
+		"\treturn on\n" +
+		"}\n"
+	root := writeTree(t, map[string]string{"internal/scan/blink.go": src})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 0 {
+		t.Fatalf("want an unrelated constant left alone, got %v", copies)
+	}
+}
