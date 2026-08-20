@@ -142,9 +142,27 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 			// the Detail while its sibling in A7 declared the opposite rule,
 			// and a board item showing a snippet lost the very command it
 			// documented.
-			if current != nil {
+			//
+			// Past an UNCLOSED fence, though, nothing is nested under
+			// anything: every remaining line arrives Fenced because the
+			// structure stopped being read, so appending them would hand the
+			// last open item a Detail containing the rest of the board --
+			// lanes and other items included. The source is already marked
+			// unreadable through doc.Err; the panel must not also lie about
+			// what belongs to what.
+			if current != nil && !pastUnclosedFence(doc, ln) {
 				current.Detail += "\n" + ln.Raw
 			}
+		case strings.TrimSpace(ln.Raw) == "":
+			// A blank line does NOT close the item. It used to, through the
+			// default arm, and that made "fenced content belongs to the item
+			// it is nested under" hold only when the fence abutted the item:
+			// board / blank / `- [ ] item` / blank / fence dropped the very
+			// snippet the rule protects, because current was already nil.
+			// A board is written with blank lines between an item and the
+			// command it documents -- that spelling is the normal one, and
+			// the rule has to survive it (AC002, gate finding
+			// `founderboard-blank-line-drops-fenced-snippet`).
 		case ln.Kind == md.Heading:
 			flush()
 			if m := faixaHeading.FindStringSubmatch(ln.Raw); m != nil {
@@ -213,6 +231,13 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 	state.Err = doc.Err
 	state.Count = len(items)
 	return items, state
+}
+
+// pastUnclosedFence reports whether a line sits at or after the fence that
+// opened and never closed. Everything from there on is content whose structure
+// was never read, so it belongs to no item.
+func pastUnclosedFence(doc *md.Doc, ln md.Line) bool {
+	return doc.UnclosedFenceAt > 0 && ln.Num >= doc.UnclosedFenceAt
 }
 
 // markerLocator names where a life.md marker sits. Before the first heading

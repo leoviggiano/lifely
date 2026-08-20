@@ -77,8 +77,18 @@ type Doc struct {
 	// the file and an "unclosed" fence is its symptom -- announcing the
 	// symptom before the cause sent readers hunting for a backtick that
 	// exists (gate round 21, finding 1).
-	Err   string
-	Lines []Line
+	Err string
+	// UnclosedFenceAt is the line a fence opened on and never closed, or 0
+	// when every fence closed. Err already SAYS so in prose, and a consumer
+	// that had to read the number back out of that sentence would be parsing
+	// an error message -- or, worse, counting delimiters itself, which is the
+	// fourth hand-written copy of the guard this package exists to prevent.
+	// The line matters because everything from it on reached the consumer as
+	// Fenced content whose structure was never read: FOUNDER.md's board keeps
+	// its snippets, but must not swallow the rest of the file as one item's
+	// detail.
+	UnclosedFenceAt int
+	Lines           []Line
 }
 
 // maxLine bounds one line of input. One bound, stated once: the three
@@ -148,6 +158,7 @@ func Read(path string) *Doc {
 		doc.Err = err.Error()
 	}
 	if inFence {
+		doc.UnclosedFenceAt = fenceOpenedAt
 		if doc.Err != "" {
 			doc.Err += "; "
 		}

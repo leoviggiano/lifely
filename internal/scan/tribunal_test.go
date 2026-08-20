@@ -563,3 +563,43 @@ func TestUnbalancedFenceIsReported(t *testing.T) {
 		t.Error("the board was truncated by an unbalanced fence and nothing said so")
 	}
 }
+
+// The snippet survives the blank line a board actually writes. The rule that
+// keeps fenced content in the item's Detail used to hold only when the fence
+// ABUTTED the item: a blank line closed the item through the default arm, and
+// every fenced line after it was dropped for having no item to belong to. The
+// spelling below -- item, blank line, fence -- is the normal one, so AC002 was
+// green in the only spelling that worked. (defect D2, gate finding
+// `founderboard-blank-line-drops-fenced-snippet`)
+func TestFencedSnippetSurvivesABlankLineAfterTheItem(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Com snippet**\n\n```sh\nject start lifely-028\n```\n")
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 1 {
+		t.Fatalf("got %d items, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Detail, "ject start lifely-028") {
+		t.Errorf("a blank line between the item and its fence dropped the command: %q", got[0].Detail)
+	}
+}
+
+// An unclosed fence marks the source and stops there: it must not hand the
+// last open item a Detail containing the rest of the board. Past the fence
+// that never closed nothing is nested under anything -- every remaining line
+// arrives Fenced only because the structure stopped being read. (gate finding
+// `founderboard-unclosed-fence-detail-bloat`)
+func TestUnclosedFenceDoesNotSwallowTheRestOfTheBoard(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Item A**\n\n```sh\ncmd\n\n## Faixa 3\n\n- [ ] **Item B**\n")
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) == 0 {
+		t.Fatalf("the board lost every item")
+	}
+	for _, p := range got {
+		if strings.Contains(p.Detail, "Item B") || strings.Contains(p.Detail, "Faixa 3") {
+			t.Errorf("item %q swallowed the rest of the board: %q", p.Title, p.Detail)
+		}
+	}
+}

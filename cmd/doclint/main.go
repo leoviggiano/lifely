@@ -421,11 +421,21 @@ const fenceDelimiter = "```"
 func fenceCopies(root string) ([]string, error) {
 	var files []parsedFile
 	named := map[string]map[string]bool{}
+	// The exemption is measured from the MODULE root, not from wherever the
+	// walk was pointed. Measured against the walk root, `doclint internal`
+	// turned the parser itself into a copy of the guard it owns -- exit 1 on
+	// correct code, the one failure this lint cannot afford (gate finding
+	// `doclint-exemption-root-relative`, run 01M0EG4DSK). Outside a module the
+	// walk root is the only answer there is, and it stands in.
+	base := root
+	if found, err := moduleRootAbove(root); err == nil {
+		base = found
+	}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
 		}
-		if ownsTheGuard(root, path) {
+		if ownsTheGuard(base, path) {
 			return nil
 		}
 		fset := token.NewFileSet()
@@ -509,7 +519,8 @@ func delimiterNames(file *ast.File) map[string]bool {
 }
 
 // ownsTheGuard reports whether path lives in the parser package's tree, the one
-// place the fence state machine is allowed to live.
+// place the fence state machine is allowed to live. base is the module root, so
+// the answer does not move with the directory the lint was pointed at.
 //
 // The exemption covers the SUBTREE, not one directory: splitting the machine
 // into internal/md/fence is the natural move the day md.go grows, and an
@@ -517,8 +528,16 @@ func delimiterNames(file *ast.File) map[string]bool {
 // copy of it. Reporting correct code is the failure this lint cannot afford --
 // it runs in commands.lint with no suppression directive (gate finding
 // `ownstheguard-exact-dir`, run 01M0EE3B7R).
-func ownsTheGuard(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
+func ownsTheGuard(base, path string) bool {
+	// Both sides are made absolute first: base comes from the module root and
+	// path from the walk, so one can be absolute while the other is not, and
+	// filepath.Rel on that mix fails and silently reports the parser package
+	// as a copy.
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(base, abs)
 	if err != nil {
 		return false
 	}
@@ -610,6 +629,18 @@ func contains(haystack []string, needle string) bool {
 // whole repository rather than the package it happens to live in.
 func moduleRoot() (string, error) {
 	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return moduleRootAbove(dir)
+}
+
+// moduleRootAbove walks up from dir to the directory holding go.mod. One copy
+// of that walk, because two places now need it -- where the check starts and
+// where the parser package's exemption is measured from -- and a second copy is
+// where the two would drift apart.
+func moduleRootAbove(start string) (string, error) {
+	dir, err := filepath.Abs(start)
 	if err != nil {
 		return "", err
 	}

@@ -897,3 +897,20 @@ func TestFenceCopiesIgnoresANegationOfSomethingElse(t *testing.T) {
 		t.Fatalf("want a negation of another value left alone, got %v", copies)
 	}
 }
+
+// TestFenceCopiesExemptionIsMeasuredFromTheModuleRoot pins where the exemption
+// is anchored: pointing the lint below the module root must not turn the parser
+// package into a copy of the guard it owns.
+func TestFenceCopiesExemptionIsMeasuredFromTheModuleRoot(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"go.mod":            "module example.com/fixture\n\ngo 1.26\n",
+		"internal/md/md.go": fenceMachineSource,
+	})
+	copies, err := fenceCopies(filepath.Join(root, "internal"))
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 0 {
+		t.Fatalf("want the parser exempt whatever the walk root is, got %v", copies)
+	}
+}
