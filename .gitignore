@@ -4,3 +4,6 @@
 
 # local editor noise
 .DS_Store
+
+# graphify derived output (never versioned)
+/graphify-out/
