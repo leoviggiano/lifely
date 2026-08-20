@@ -1,12 +1,10 @@
 package scan
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -15,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/leoviggiano/lifely/internal/md"
 	"github.com/leoviggiano/lifely/internal/pendency"
 )
 
@@ -209,16 +208,18 @@ func Ject(run Runner, now time.Time) ([]pendency.Pendency, []SourceState, map[st
 		}
 		states = append(states, st)
 	}
-	if decisionCount > 0 || decisionErr != "" || len(budgetCut) > 0 {
-		// The budget cut applies here too: tickets we never opened may hold
-		// decisions waiting on the founder, so this source under-reports for
-		// the same reason the ject ones do -- and it is the one source where
-		// silence is least affordable.
-		note := ""
-		if cut := len(budgetCut); cut > 0 {
-			note = fmt.Sprintf("the sweep budget was spent; tickets listed without detail in %d project(s) were not read for decisions", cut)
-		}
-		states = append(states, SourceState{Name: "decisoes.md", Count: decisionCount, Err: decisionErr, Note: note})
+	// The budget cut applies here too: tickets we never opened may hold
+	// decisions waiting on the founder, so this source under-reports for
+	// the same reason the ject ones do -- and it is the one source where
+	// silence is least affordable.
+	note := ""
+	if cut := len(budgetCut); cut > 0 {
+		note = fmt.Sprintf("the sweep budget was spent; tickets listed without detail in %d project(s) were not read for decisions", cut)
+	}
+	// The same one-place filter the tribunal sweeps go through: a state whose
+	// only content is a Note still earns its line.
+	if st := (SourceState{Name: "decisoes.md", Count: decisionCount, Err: decisionErr, Note: note}); reportable(st) {
+		states = append(states, st)
 	}
 	return items, states, graph
 }
@@ -307,7 +308,11 @@ func ticketDetailLine(t recentTicket, d ticketDetail, open map[string]bool, unkn
 // Deduplicating two things that are only ALMOST the same moves the difference
 // into a parameter -- it does not delete it.
 func describeExec(tool string, err error) string {
-	if _, ok := err.(*exec.Error); ok {
+	// errors.As, like the exit branch below: a raw type assertion here meant
+	// a runner that wraps its errors lost the one message that says which
+	// tool to install.
+	var missing *exec.Error
+	if errors.As(err, &missing) {
 		return tool + " is not on PATH -- this source is unavailable"
 	}
 	// Keep what the binary said. Output() puts stderr in ExitError.Stderr and
@@ -375,17 +380,14 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 		return nil, "ticket directory unknown, decision queue not read"
 	}
 	path := filepath.Join(dir, "decisoes.md")
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, "" // no queue for this ticket: the normal case
-		}
-		// A decision queue that EXISTS and cannot be read is the worst thing
-		// this scanner can hide: it is the founder's own list, and reporting
-		// "nothing pending" would be a lie with his name on it.
-		return nil, err.Error()
+	// A decision queue that EXISTS and cannot be read is the worst thing
+	// this scanner can hide: it is the founder's own list, and reporting
+	// "nothing pending" would be a lie with his name on it. Absence stays
+	// silent -- the normal case -- and md.Doc keeps the two apart.
+	doc := md.Read(path)
+	if doc.Missing {
+		return nil, ""
 	}
-	defer f.Close()
 
 	var items []pendency.Pendency
 	var id, title string
@@ -424,37 +426,30 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 		id, title, body, pendingBlock = "", "", nil, true
 	}
 
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
-	// Same fence guard founderBoard got: markdown inside a code block is code.
-	// The guard landed on ONE of the three markdown scanners and the review
-	// named the other two -- the same "fixed the site, not the class" this
-	// package has now paid for five times.
-	inFence, fenceOpenedAt, row := false, 0, 0
-	for sc.Scan() {
-		row++
-		line := sc.Text()
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			inFence = !inFence
-			if inFence {
-				fenceOpenedAt = row
-			}
-			body = append(body, line)
-			continue
-		}
+	for _, ln := range doc.Lines {
+		line := ln.Raw
 		// Inside a fence the line is CONTENT, never structure. It still goes
 		// into the body: the whole block is the decision surface the founder
 		// reads, and swallowing a snippet out of it would summarise for him.
 		// The first version of this guard dropped it, which is the opposite of
 		// what the guard is for.
-		if inFence {
-			body = append(body, line)
+		//
+		// Past an UNCLOSED fence nothing belongs to anything: every line after
+		// it arrives Fenced only because structure stopped being read, so
+		// appending them would give D1's block the whole text of D2 and show
+		// the founder one decision's surface attributed to another. The same
+		// carve-out founderBoard carries -- written twice because the two
+		// consumers decide separately by design, and measured by the gate the
+		// one round it existed in only one of them.
+		if ln.Kind == md.Fenced {
+			if !pastUnclosedFence(doc, ln) {
+				body = append(body, line)
+			}
 			continue
 		}
-		if strings.HasPrefix(line, "## ") {
+		if ln.Kind == md.Heading && ln.Level == 2 {
 			flush()
-			head := strings.TrimPrefix(line, "## ")
-			id, title, _ = strings.Cut(head, " · ")
+			id, title, _ = strings.Cut(ln.Title, " · ")
 			id = strings.TrimSpace(id)
 			title = strings.TrimSpace(title)
 			continue
@@ -468,15 +463,10 @@ func decisions(dir, ticketID string, now time.Time, detailRead bool) ([]pendency
 		body = append(body, line)
 	}
 	flush()
-	if inFence {
-		// Same report founderBoard makes: a fence that never closes hides
-		// everything after it, and the copy that landed here brought only the
-		// skip half of that guard -- recreating in A7 the silent truncation
-		// the board had just been fixed for.
-		return items, fmt.Sprintf("a code fence opened at line %d was never closed; the decisions below it were not read", fenceOpenedAt)
-	}
-	if err := sc.Err(); err != nil {
-		return items, err.Error()
-	}
-	return items, ""
+	// The read failure first, an unclosed fence after, composed once by
+	// md.Read. The copy of the guard that lived here announced the fence
+	// BEFORE consulting the scanner error, so bufio.ErrTooLong surfaced as a
+	// fence that exists in the file (r21, finding 1) -- the exact divergence
+	// a hand-carried guard invites.
+	return items, doc.Err
 }

@@ -1,4 +1,9 @@
-// Command doclint reports a doc comment that sits on the wrong symbol.
+// Command doclint reports a doc comment that sits on the wrong symbol, and a
+// code-fence state machine written outside the package that owns it.
+//
+// Two checks, one program, because both are the same shape of defect: something
+// the compiler, the test suite and a quick read all wave through. The first
+// check is below; the second is fenceCopies, and it says why it exists there.
 //
 // It is a LINT, and it is a program because that is what a lint is. It began
 // as a test, and the gate objected three times to the same thing: a _test.go
@@ -28,6 +33,10 @@
 // Go convention says it documents the GROUP -- so a member slipping in under
 // it is not a misplacement here; it is still flagged when its first word names
 // a symbol declared somewhere else in the file.
+//
+// Neither check reads source the Go tool itself ignores: the walk skips any
+// directory whose name starts with '.' or '_' (skipIfHidden says why, and why
+// the root the lint is pointed AT is the exception).
 package main
 
 import (
@@ -36,9 +45,11 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -65,11 +76,24 @@ func run(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "doclint:", err)
 		return 2
 	}
+	copies, err := fenceCopies(root)
+	if err != nil {
+		fmt.Fprintln(stderr, "doclint:", err)
+		return 2
+	}
 	for _, p := range problems {
 		fmt.Fprintln(stderr, p)
 	}
+	for _, c := range copies {
+		fmt.Fprintln(stderr, c)
+	}
 	if len(problems) > 0 {
 		fmt.Fprintf(stderr, "doclint: %d doc comment(s) on the wrong symbol\n", len(problems))
+	}
+	if len(copies) > 0 {
+		fmt.Fprintf(stderr, "doclint: %d copied fence guard(s) outside %s\n", len(copies), parserPackage)
+	}
+	if len(problems) > 0 || len(copies) > 0 {
 		return 1
 	}
 	return 0
@@ -80,8 +104,14 @@ func run(args []string, stderr io.Writer) int {
 func check(root string) ([]string, error) {
 	var problems []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			return skipIfHidden(root, path, d)
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
 		}
 		fset := token.NewFileSet()
 		file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments)
@@ -356,6 +386,287 @@ func declaredNames(decl ast.Decl) []string {
 	return nil
 }
 
+// parserPackage is the root of the one tree allowed to own a code-fence state
+// machine -- the package itself and anything under it (ownsTheGuard says why
+// the exemption covers the subtree and not a single directory).
+// The path is relative to the MODULE root, not to the directory the lint was
+// pointed at (fenceCopies says why), so the exemption travels with the module
+// rather than with anybody's working directory or walk root.
+const parserPackage = "internal/md"
+
+// fenceDelimiter is the markdown code-fence marker.
+//
+// Naming it here does NOT hide it from the check: since the const bypass was
+// closed, a package-level name holding the delimiter counts exactly like an
+// inline literal, this file included. What keeps this lint from reporting
+// itself is the other half of the signature -- no function here flips a boolean
+// onto itself, because none of them tracks fence state. The day one does, this
+// check will have to answer for it, which is the point.
+const fenceDelimiter = "```"
+
+// fenceCopies reports every hand-written copy of the code-fence state machine
+// living outside internal/md.
+//
+// This is the second check, and it exists because of what the first one cannot
+// see: lifely-028 measured three scanners carrying their own copies of the same
+// fence guard, and the copies diverged TWICE in two gate rounds -- a guard
+// propagated by half recreates the bug it was written to kill. Consolidating
+// them into internal/md fixes the instances; only a mechanical lock keeps the
+// fourth copy from being written next month. It is a lint and not a _test.go by
+// the lesson this repository already paid for: an assertion about the SHAPE of
+// code is a lint, and the gate raised that same objection three times.
+//
+// The signature it looks for is the machine's two inseparable halves, in one
+// function: the fence delimiter, and a boolean that flips on itself. Both, or
+// nothing. Test fixtures across internal/scan hold fenced markdown as data and
+// would be false positives under a rule that took the delimiter alone as
+// proof; a bool that toggles for any other reason is nobody's fence.
+// A lint that rejects correct code is worse than no lint, and this one is wired
+// into commands.lint with no suppression directive.
+// The delimiter counts whether it is written inline or hoisted to a package
+// constant: reading only inline literals left the copy one refactor away from
+// invisible, and hoisting the delimiter is precisely the idiom this file itself
+// uses (gate finding `fence-lint-const-bypass`, run 01M0EET1HB). Package-level
+// names are collected per DIRECTORY, because that is the scope a Go package
+// spans -- the constant and the copy that uses it need not share a file.
+func fenceCopies(root string) ([]string, error) {
+	var files []parsedFile
+	named := map[string]map[string]bool{}
+	// The exemption is measured from the MODULE root, not from wherever the
+	// walk was pointed. Measured against the walk root, `doclint internal`
+	// turned the parser itself into a copy of the guard it owns -- exit 1 on
+	// correct code, the one failure this lint cannot afford (gate finding
+	// `doclint-exemption-root-relative`, run 01M0EG4DSK). Outside a module the
+	// walk root is the only answer there is, and it stands in.
+	base, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	if found, ferr := moduleRootAbove(root); ferr == nil {
+		base = found
+	}
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return skipIfHidden(root, path, d)
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		if ownsTheGuard(base, path) {
+			return nil
+		}
+		fset := token.NewFileSet()
+		file, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return nil // not our business: the compiler reports these
+		}
+		dir := filepath.Dir(path)
+		files = append(files, parsedFile{path: path, dir: dir, fset: fset, file: file})
+		for name := range delimiterNames(file) {
+			if named[dir] == nil {
+				named[dir] = map[string]bool{}
+			}
+			named[dir][name] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var problems []string
+	for _, pf := range files {
+		for _, decl := range pf.file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			fence, flip := fenceMachine(fn.Body, named[pf.dir])
+			if !flip.IsValid() {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf("%s:%d: %s toggles a fence state of its own (delimiter at line %d); %s owns that guard",
+				pf.path, pf.fset.Position(flip).Line, fn.Name.Name, pf.fset.Position(fence).Line, parserPackage))
+		}
+	}
+	return problems, nil
+}
+
+// parsedFile is one Go file kept between the two passes fenceCopies makes: the
+// package-level delimiter names have to be known before any function body in
+// that directory can be judged, so the file is parsed once and held.
+//
+// This says nothing about the OTHER check. check and fenceCopies walk the tree
+// separately, with different parse modes, because they are separate rules that
+// have to be able to change without touching each other -- the cost is
+// milliseconds on a tree this size. An earlier version of this comment argued
+// against re-parsing as if it were a rule of the program rather than of this
+// function, which read as the program contradicting itself one level up (gate
+// finding `doclint-double-walk`).
+type parsedFile struct {
+	path string
+	dir  string
+	fset *token.FileSet
+	file *ast.File
+}
+
+// delimiterNames returns the package-level constant and variable names in one
+// file whose value carries the fence delimiter. A local declaration needs no
+// entry here: its literal sits inside the function body, where fenceMachine
+// already walks over it.
+func delimiterNames(file *ast.File) map[string]bool {
+	out := map[string]bool{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range value.Names {
+				if i >= len(value.Values) {
+					continue
+				}
+				lit, ok := value.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				if strings.Contains(literalValue(lit), fenceDelimiter) {
+					out[name.Name] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+// ownsTheGuard reports whether path lives in the parser package's tree, the one
+// place the fence state machine is allowed to live. base is the module root, so
+// the answer does not move with the directory the lint was pointed at.
+//
+// The exemption covers the SUBTREE, not one directory: splitting the machine
+// into internal/md/fence is the natural move the day md.go grows, and an
+// exemption pinned to a single level would report the owner of the guard as a
+// copy of it. Reporting correct code is the failure this lint cannot afford --
+// it runs in commands.lint with no suppression directive (gate finding
+// `ownstheguard-exact-dir`, run 01M0EE3B7R).
+func ownsTheGuard(base, path string) bool {
+	// Both sides are made absolute first: base comes from the module root and
+	// path from the walk, so one can be absolute while the other is not, and
+	// filepath.Rel on that mix fails and silently reports the parser package
+	// as a copy.
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(base, abs)
+	if err != nil {
+		return false
+	}
+	dir := filepath.ToSlash(filepath.Dir(rel))
+	return dir == parserPackage || strings.HasPrefix(dir, parserPackage+"/")
+}
+
+// fenceMachine returns the positions of a fence state machine's two halves
+// inside one function body: where the delimiter is named, and where a boolean
+// flips on itself. Both positions come back invalid unless BOTH halves are
+// present, because either one alone is ordinary code.
+//
+// The delimiter is named either by an inline literal or by one of the
+// package-level names in delimiters, which is what closes the hoist-it-to-a-
+// constant bypass.
+func fenceMachine(body *ast.BlockStmt, delimiters map[string]bool) (fence, flip token.Pos) {
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.Ident:
+			if !fence.IsValid() && delimiters[node.Name] {
+				fence = node.Pos()
+			}
+		case *ast.BasicLit:
+			if !fence.IsValid() && node.Kind == token.STRING && strings.Contains(literalValue(node), fenceDelimiter) {
+				fence = node.Pos()
+			}
+		case *ast.AssignStmt:
+			if !flip.IsValid() {
+				if pos := selfNegation(node); pos.IsValid() {
+					flip = pos
+				}
+			}
+		}
+		return true
+	})
+	if !fence.IsValid() || !flip.IsValid() {
+		return token.NoPos, token.NoPos
+	}
+	return fence, flip
+}
+
+// literalValue returns what a string literal actually holds. An unquote failure
+// falls back to the raw source text: a delimiter this lint cannot decode is
+// still a delimiter, and missing it would be the silent half of the failure.
+func literalValue(lit *ast.BasicLit) string {
+	if unquoted, err := strconv.Unquote(lit.Value); err == nil {
+		return unquoted
+	}
+	return lit.Value
+}
+
+// selfNegation returns the position of an assignment that flips a value onto
+// itself (`x = !x`) -- the shape every copy of the fence machine wrote, because
+// a fence alternates. Anything else comes back as no position.
+//
+// The two sides are compared as WRITTEN, not by node type. Requiring an
+// identifier on the left let a machine that keeps its flag in a struct field
+// (`s.inFence = !s.inFence`) walk straight past the check -- measured by the
+// gate, which ran the built lint against both spellings of the same machine and
+// got exit 0 and exit 1 (finding `fence-lint-field-bypass`, run 01M0EFH2F9).
+// The defect there was tying the rule to the SHAPE of the lvalue instead of to
+// the relation, so the fix answers for the class: field, nested field and
+// indexed element are all one comparison.
+func selfNegation(as *ast.AssignStmt) token.Pos {
+	if as.Tok != token.ASSIGN || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+		return token.NoPos
+	}
+	unary, ok := as.Rhs[0].(*ast.UnaryExpr)
+	if !ok || unary.Op != token.NOT {
+		return token.NoPos
+	}
+	if types.ExprString(as.Lhs[0]) != types.ExprString(unary.X) {
+		return token.NoPos
+	}
+	return as.Pos()
+}
+
+// skipIfHidden tells the walk to skip a directory the Go tool itself ignores:
+// one whose name starts with '.' or '_'. Both checks here walk with
+// filepath.WalkDir, which has no such rule, so they used to read files the
+// build never compiles.
+//
+// Measured, and it was not hypothetical: a nested git worktree at
+// .claude/worktrees/ held the pre-consolidation copy of internal/scan, and
+// `go run ./cmd/doclint .` reported three fence guards that `go list ./...`
+// does not even list. A lint that goes red on the developer's tree while the
+// gate stays green -- over source the compiler cannot see -- is the false
+// positive this whole ticket exists to kill.
+//
+// The root itself is never skipped: pointing the lint AT a dot-directory is an
+// explicit request to check it, not an accident of walking past.
+func skipIfHidden(root, path string, d os.DirEntry) error {
+	if path == root {
+		return nil
+	}
+	name := d.Name()
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
 // contains reports whether needle is one of the names in haystack.
 func contains(haystack []string, needle string) bool {
 	for _, h := range haystack {
@@ -370,6 +681,18 @@ func contains(haystack []string, needle string) bool {
 // whole repository rather than the package it happens to live in.
 func moduleRoot() (string, error) {
 	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return moduleRootAbove(dir)
+}
+
+// moduleRootAbove walks up from dir to the directory holding go.mod. One copy
+// of that walk, because two places now need it -- where the check starts and
+// where the parser package's exemption is measured from -- and a second copy is
+// where the two would drift apart.
+func moduleRootAbove(start string) (string, error) {
+	dir, err := filepath.Abs(start)
 	if err != nil {
 		return "", err
 	}

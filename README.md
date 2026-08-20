@@ -69,10 +69,12 @@ Servidor iniciado à mão sobrevive ao fecho da sessão.
 `lifely scan` faz a mesma varredura que o painel e imprime o resultado: as
 pendências agrupadas por quem bloqueia e, depois, o estado de cada fonte —
 fonte que existe e não pôde ser lida sai **marcada**, nunca some, inclusive
-quando não há nenhuma pendência. O repo do tribunal vem de `--root` (padrão
-`~/projects/artifacts`); os tickets vêm do binário `ject` no `PATH` — sem ele,
-a fonte `ject` aparece ilegível, não vazia. O `--root` é o mesmo do `serve`: o
-painel varre exatamente o que este comando varre.
+quando não há nenhuma pendência. Fonte lida pela metade também não some: sai
+marcada `cut short`, mesmo sem nenhuma pendência aberta — "li tudo e não achei
+nada" e "parei no meio" são respostas diferentes. O repo do tribunal vem de
+`--root` (padrão `~/projects/artifacts`); os tickets vêm do binário `ject` no
+`PATH` — sem ele, a fonte `ject` aparece ilegível, não vazia. O `--root` é o
+mesmo do `serve`: o painel varre exatamente o que este comando varre.
 
 ## Desenvolvimento
 
@@ -80,7 +82,7 @@ painel varre exatamente o que este comando varre.
 go build ./...           # compila
 go test ./...            # testes
 go vet ./...             # lint
-go run ./cmd/doclint .   # lint: comentário de doc no símbolo errado
+go run ./cmd/doclint .   # lint: doc no símbolo errado · cerca fora do md
 gofmt -w .               # formato
 ```
 
@@ -97,9 +99,25 @@ dentro de `const(...)`/`var(...)`/`type(...)`, e os campos de struct e métodos
 de interface declarados num `type` (campo embutido responde pelo nome
 implícito do tipo). Ficam de fora de propósito o import — um comentário só é
 acusado quando a declaração que o carrega declara algum nome, e import não
-declara nome que o lint indexe — e declaração dentro de corpo de função (o
-lint só anda as declarações de topo do arquivo). O `cmd/doclint` diz por que
-isso é lint, e não suíte, e o que fica fora do alcance.
+declara nome que o lint indexe — e declaração dentro de corpo de função (esta
+checagem só anda as declarações de topo do arquivo). O `cmd/doclint` diz por
+que isso é lint, e não suíte, e o que fica fora do alcance.
+
+O `doclint` tem uma **segunda checagem**: ele recusa uma máquina de estado de
+cerca escrita fora da árvore de `internal/md`, a única onde essa guarda pode
+morar. Três scanners já carregaram cópias da mesma guarda e as cópias
+divergiram duas vezes; consolidá-las conserta as instâncias, e só uma trava
+mecânica impede a quarta cópia. A assinatura que ela procura são as duas
+metades inseparáveis da máquina **na mesma função**: o delimitador de cerca e
+um valor que se nega a si mesmo (`x = !x`). As duas, ou nada — fixture de teste
+com markdown cercado é dado, não guarda, e valor que alterna por outro motivo
+não é cerca de ninguém. Os dois lados da negação são comparados **como
+escritos**, não pelo tipo do nó: `s.inFence = !s.inFence` conta igual, porque
+exigir um identificador puro deixava passar reta a máquina que guarda o flag
+num campo. O delimitador conta escrito na linha **ou** içado para uma constante
+ou variável de pacote (o nome é procurado no diretório inteiro, que é o alcance
+de um pacote em Go): ler só o literal deixava a cópia a um refactor de ficar
+invisível.
 
 ## Onde mora a verdade
 

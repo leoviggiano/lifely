@@ -10,7 +10,6 @@ package scan
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -21,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/leoviggiano/lifely/internal/md"
 	"github.com/leoviggiano/lifely/internal/pendency"
 )
 
@@ -42,6 +42,15 @@ type SourceState struct {
 	// distinction is the difference between "fix your vault" and "the vault
 	// is big".
 	Note string
+}
+
+// reportable says whether a source earns its line on the panel: open items,
+// a read failure, or a Note. The filter used to check Count and Err only, so
+// a source whose whole story was "read, but cut short" vanished silently --
+// contradicting the contract SourceState declares for Note two lines above
+// its own definition.
+func reportable(s SourceState) bool {
+	return s.Count > 0 || s.Err != "" || s.Note != ""
 }
 
 // Result is one whole sweep.
@@ -78,7 +87,7 @@ func Tribunal(root string) Result {
 		res.Pendencies = append(res.Pendencies, items...)
 		// A source with nothing open is omitted: a "0 pending" line is noise,
 		// and the panel is an index, not an inventory (spec FR1.4).
-		if state.Count > 0 || state.Err != "" {
+		if reportable(state) {
 			res.Sources = append(res.Sources, state)
 		}
 	}
@@ -91,33 +100,18 @@ func Tribunal(root string) Result {
 
 var faixaHeading = regexp.MustCompile(`^##\s+Faixa\s+(\d+)`)
 
-// headingLine captures a markdown heading and its LEVEL.
-//
-// The lane rule follows document nesting, which is the only answer that does
-// not need reinventing every time a board grows a section: a lane opened by
-// `## Faixa N` ends at the next heading of the SAME level or SHALLOWER, and a
-// DEEPER heading (`### Caixa`) is a subsection of that lane, not a new one.
-//
-// Both previous answers were wrong in opposite directions: resetting only on
-// `## ` let `# Apêndice` inherit the lane, and resetting on any heading
-// demoted every item under a `###` subsection out of its own lane.
-var headingLine = regexp.MustCompile(`^(#{1,6})\s`)
-
 func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState) {
 	path := filepath.Join(root, "FOUNDER.md")
 	state := SourceState{Name: "FOUNDER.md", Path: path}
 
-	f, err := os.Open(path)
-	if err != nil {
-		// A source that EXISTS and cannot be read is a finding; one that is
-		// simply not there is normal absence, and marking it unreadable
-		// trains the reader to ignore the marker (SourceState's own contract).
-		if !os.IsNotExist(err) {
-			state.Err = err.Error()
-		}
+	// A source that EXISTS and cannot be read is a finding; one that is
+	// simply not there is normal absence, and marking it unreadable trains
+	// the reader to ignore the marker (SourceState's own contract, which
+	// md.Doc states the same way).
+	doc := md.Read(path)
+	if doc.Missing {
 		return nil, state
 	}
-	defer f.Close()
 
 	var items []pendency.Pendency
 	var faixa string
@@ -138,46 +132,62 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 		}
 	}
 
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	inFence := false
-	// Where the open fence started, so an unbalanced one can say WHERE rather
-	// than just that something is wrong.
-	fenceOpenedAt, boardLine := 0, 0
-	for sc.Scan() {
-		boardLine++
-		line := sc.Text()
-		// A `#` inside a fenced block is code, not a section. Widening the
-		// lane rule to every heading level widened this too: a board showing
-		// a shell snippet with a `# comment` line would close the lane and
-		// send everything below it out of the founder's group.
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			inFence = !inFence
-			if inFence {
-				fenceOpenedAt = boardLine
-			}
-			continue
-		}
-		if inFence {
-			continue
-		}
-		if m := faixaHeading.FindStringSubmatch(line); m != nil {
-			flush()
-			faixa = m[1]
-			// From the regex, not from a space split: faixaHeading accepts any
-			// whitespace (`\s`), so `##\tFaixa 1` broke the split and left the
-			// level at 0, which reopened the leak this level was added to fix.
-			faixaLevel = len(headingLine.FindStringSubmatch(line)[1])
-			continue
-		}
+	for _, ln := range doc.Lines {
 		switch {
-		case strings.HasPrefix(strings.TrimLeft(line, " \t"), "- [ ] "):
+		case ln.Kind == md.Fenced:
+			// Inside a fence the line is CONTENT, never structure -- a `#`
+			// there must not close the lane, and a `- [ ]` there is an
+			// example, not work. But content still belongs to the item it is
+			// nested under: this guard's first copy dropped these lines from
+			// the Detail while its sibling in A7 declared the opposite rule,
+			// and a board item showing a snippet lost the very command it
+			// documented.
+			//
+			// Past an UNCLOSED fence, though, nothing is nested under
+			// anything: every remaining line arrives Fenced because the
+			// structure stopped being read, so appending them would hand the
+			// last open item a Detail containing the rest of the board --
+			// lanes and other items included. The source is already marked
+			// unreadable through doc.Err; the panel must not also lie about
+			// what belongs to what.
+			if current != nil && !pastUnclosedFence(doc, ln) {
+				current.Detail += "\n" + ln.Raw
+			}
+		case strings.TrimSpace(ln.Raw) == "":
+			// A blank line does NOT close the item. It used to, through the
+			// default arm, and that made "fenced content belongs to the item
+			// it is nested under" hold only when the fence abutted the item:
+			// board / blank / `- [ ] item` / blank / fence dropped the very
+			// snippet the rule protects, because current was already nil.
+			// A board is written with blank lines between an item and the
+			// command it documents -- that spelling is the normal one, and
+			// the rule has to survive it (AC002, gate finding
+			// `founderboard-blank-line-drops-fenced-snippet`).
+		case ln.Kind == md.Heading:
+			flush()
+			if m := faixaHeading.FindStringSubmatch(ln.Raw); m != nil {
+				faixa = m[1]
+				faixaLevel = ln.Level
+			} else if ln.Level <= faixaLevel {
+				// The lane rule follows document nesting, which is the only
+				// answer that does not need reinventing every time a board
+				// grows a section: a lane opened by `## Faixa N` ends at the
+				// next heading of the SAME level or SHALLOWER, and a DEEPER
+				// heading (`### Caixa`) is a subsection of that lane, not a
+				// new one. Both previous answers were wrong in opposite
+				// directions: resetting only on `## ` let `# Apêndice`
+				// inherit the lane, and resetting on any heading demoted
+				// every item under a `###` subsection out of its own lane.
+				faixa = ""
+				faixaLevel = 0
+			}
+		case ln.Kind == md.Item && !ln.Checked:
 			// Indented sub-tasks count: an item nested under another is still
 			// open work, and dropping it hides the very detail that a board
 			// uses indentation to express.
 			flush()
 			seen++
-			title := strings.TrimPrefix(strings.TrimLeft(line, " \t"), "- [ ] ")
+			title := ln.Text
 			p := pendency.Pendency{
 				// Identity = lane + WHOLE title.
 				//
@@ -204,37 +214,31 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 				SeenAt:  now,
 			}
 			current = &p
-		case strings.HasPrefix(strings.TrimLeft(line, " \t"), "- [x] "):
+		case ln.Kind == md.Item:
+			// A checked item is closed work.
 			flush()
-		case headingLine.MatchString(line):
-			flush()
-			// Same level or shallower closes the lane; deeper is inside it.
-			if len(headingLine.FindStringSubmatch(line)[1]) <= faixaLevel {
-				faixa = ""
-				faixaLevel = 0
-			}
-		case current != nil && (strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "\t")):
-			current.Detail += "\n" + line
+		case current != nil && (strings.HasPrefix(ln.Raw, "  ") || strings.HasPrefix(ln.Raw, "\t")):
+			current.Detail += "\n" + ln.Raw
 		default:
 			flush()
 		}
 	}
 	flush()
-	if err := sc.Err(); err != nil {
-		state.Err = err.Error()
-	}
-	if inFence {
-		// An unbalanced fence swallowed everything after it, silently. This is
-		// the founder's own agenda: losing its tail without a word is the
-		// worst outcome this scanner has -- worse than a wrong lane, because
-		// nothing on screen hints that anything is missing.
-		if state.Err != "" {
-			state.Err += "; "
-		}
-		state.Err += fmt.Sprintf("a code fence opened at line %d was never closed; the board below it was not read", fenceOpenedAt)
-	}
+	// The read failure and an unclosed fence are composed by md.Read, in one
+	// fixed order -- and both matter here: this is the founder's own agenda,
+	// and losing its structure without a word is the worst outcome this
+	// scanner has.
+	state.Err = doc.Err
 	state.Count = len(items)
 	return items, state
+}
+
+// pastUnclosedFence reports whether a line sits at or after the fence that
+// opened and never closed. Everything from there on is content whose structure
+// was never read, so it belongs to nothing above it -- board item and decision
+// block alike, which is why both consumers ask this one helper.
+func pastUnclosedFence(doc *md.Doc, ln md.Line) bool {
+	return doc.UnclosedFenceAt > 0 && ln.Num >= doc.UnclosedFenceAt
 }
 
 // markerLocator names where a life.md marker sits. Before the first heading
@@ -652,30 +656,21 @@ func latestSummary(root string, now time.Time) ([]pendency.Pendency, SourceState
 	}
 	path := filepath.Join(dir, latest, "summary.md")
 	state.Path = path
-	if _, err := os.Stat(path); err != nil {
-		// A round in progress has no summary yet. That is normal absence, not
-		// an unreadable source: reporting it as UNREADABLE trains the reader to
-		// ignore the one marker that should always mean something.
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, state
-		}
-		state.Err = err.Error()
+	// A round in progress has no summary yet. That is normal absence, not an
+	// unreadable source: reporting it as UNREADABLE trains the reader to
+	// ignore the one marker that should always mean something.
+	doc := md.Read(path)
+	if doc.Missing {
 		return nil, state
 	}
+	// A read failure -- or an unclosed fence, which md.Read reports the same
+	// composed way -- is a finding; what WAS read as structure still decides
+	// whether the round carries anything forward.
+	state.Err = doc.Err
 	// Only a summary that actually carries something forward is a pendency.
 	// Emitting one unconditionally would mean the panel could never reach
 	// zero -- and "nada pendente" is a result the panel must be able to show.
-	body, err := os.ReadFile(path)
-	if err != nil {
-		// Same answer the listing above gives: a summary that is not there is
-		// a round in progress, not an unreadable source. It can vanish between
-		// the two calls, and the two must not disagree about what that means.
-		if !os.IsNotExist(err) {
-			state.Err = err.Error()
-		}
-		return nil, state
-	}
-	if !carriesForward(string(body)) {
+	if !carriesForward(doc) {
 		return nil, state
 	}
 	state.Count = 1
@@ -707,19 +702,27 @@ func obsidianURI(path string) string {
 
 // carriesForward reports whether a session summary leaves something open.
 //
-// The marker is the summary's own vocabulary: a section naming what is
+// The marker is the summary's own vocabulary: a HEADING naming what is
 // pending, blocked or carried over. Absent that, the round closed clean.
-func carriesForward(body string) bool {
+// Only structure decides: this used to match the whole body as one string,
+// so a `## Pendencias` inside a fenced example counted a clean round as
+// carrying work forward -- the same fence class the other scanners paid for.
+func carriesForward(doc *md.Doc) bool {
 	// These stay in Portuguese on purpose: they are DATA, not output. They
 	// match the vocabulary of the summaries this scanner reads, and
 	// translating them would simply stop the matcher from matching.
-	lower := strings.ToLower(body)
-	for _, marker := range []string{
-		"## pendente", "## pendências", "## pendencias",
-		"## em aberto", "## atravessa", "## bloque",
-	} {
-		if strings.Contains(lower, marker) {
-			return true
+	for _, ln := range doc.Lines {
+		if ln.Kind != md.Heading {
+			continue
+		}
+		title := strings.ToLower(ln.Title)
+		for _, marker := range []string{
+			"pendente", "pendências", "pendencias",
+			"em aberto", "atravessa", "bloque",
+		} {
+			if strings.HasPrefix(title, marker) {
+				return true
+			}
 		}
 	}
 	return false
@@ -856,45 +859,33 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 	path := filepath.Join(root, "life.md")
 	state := SourceState{Name: "life.md", Path: path}
 
-	f, err := os.Open(path)
-	if err != nil {
-		// A source that EXISTS and cannot be read is a finding; one that is
-		// simply not there is normal absence, and marking it unreadable
-		// trains the reader to ignore the marker (SourceState's own contract).
-		if !os.IsNotExist(err) {
-			state.Err = err.Error()
-		}
+	// A source that EXISTS and cannot be read is a finding; one that is
+	// simply not there is normal absence, and marking it unreadable trains
+	// the reader to ignore the marker (SourceState's own contract).
+	doc := md.Read(path)
+	if doc.Missing {
 		return nil, state
 	}
-	defer f.Close()
 
 	var items []pendency.Pendency
 	var heading string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	line := 0
 	// Same tiebreak the board keys get: two identical open markers under one
 	// heading are two items, and one must not inherit the other's conversation.
 	seenLifeKeys := map[string]bool{}
-	// Same fence guard as the board and the decision queue: a `#` or an
-	// [ABERTO] inside a shell snippet is code, not a marker.
-	inFence, fenceOpenedAt := false, 0
-	for sc.Scan() {
-		line++
-		text := sc.Text()
-		if strings.HasPrefix(strings.TrimSpace(text), "```") {
-			inFence = !inFence
-			if inFence {
-				fenceOpenedAt = line
-			}
+	for _, ln := range doc.Lines {
+		// Same fence guard as the board and the decision queue, now the
+		// parser's: a `#` or an [ABERTO] inside a shell snippet is code, not
+		// a marker.
+		if ln.Kind == md.Fenced {
 			continue
 		}
-		if inFence {
-			continue
-		}
+		text := ln.Raw
+		line := ln.Num
 		m, rest, ok := openMarker(text)
-		if strings.HasPrefix(text, "#") {
-			heading = strings.TrimSpace(strings.TrimLeft(text, "# "))
+		if ln.Kind == md.Heading {
+			// The parser requires the space after the hashes, so a `#tag`
+			// stays text and no longer contaminates this locator.
+			heading = ln.Title
 			// A heading that itself RAISES a question is both: it sets the
 			// context and it is an item. Skipping it because it starts with
 			// '#' dropped exactly the markers that someone bothered to
@@ -924,17 +915,10 @@ func lifeMarkers(root string, now time.Time) ([]pendency.Pendency, SourceState) 
 			SeenAt:  now,
 		})
 	}
-	if err := sc.Err(); err != nil {
-		state.Err = err.Error()
-	}
-	if inFence {
-		// The board reports this; the copy that landed here brought only the
-		// skip half, which recreated the silent truncation in life.md.
-		if state.Err != "" {
-			state.Err += "; "
-		}
-		state.Err += fmt.Sprintf("a code fence opened at line %d was never closed; the markers below it were not read", fenceOpenedAt)
-	}
+	// Read failure and unclosed fence, composed once by md.Read: the copy of
+	// the fence guard that used to live here brought only the skip half and
+	// recreated the silent truncation the board had just been fixed for.
+	state.Err = doc.Err
 	state.Count = len(items)
 	return items, state
 }

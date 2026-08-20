@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -346,6 +347,21 @@ func TestDescribeExecNamesTheToolThatFailed(t *testing.T) {
 	}
 }
 
+// A wrapped exec.Error still means the binary is not on PATH. The missing-
+// binary branch was a raw type assertion while errors.As sat three lines
+// below it for the exit case -- so a runner that wraps its errors lost the
+// one message that says which tool to install. (defect D8)
+func TestDescribeExecSeesThroughWrappedErrors(t *testing.T) {
+	_, err := exec.Command("definitely-not-a-real-binary-xyz").Output()
+	if err == nil {
+		t.Skip("the impossible binary exists here")
+	}
+	wrapped := fmt.Errorf("running the sweep: %w", err)
+	if got := describeExec("ject", wrapped); !strings.Contains(got, "this source is unavailable") {
+		t.Errorf("describeExec on a wrapped error lost the PATH message: %q", got)
+	}
+}
+
 func TestBudgetCutSaysBudget_NotUnreadable(t *testing.T) {
 	original := sweepBudget
 	sweepBudget = time.Nanosecond
@@ -589,5 +605,99 @@ func TestDecidedBlockStaysOutOfTheQueue(t *testing.T) {
 	got, _ := decisions(dir, "lifely-001", time.Now(), true)
 	if len(got) != 0 {
 		t.Errorf("got %d decisions, want 0 -- a decided block came back to the queue", len(got))
+	}
+}
+
+// The read failure comes BEFORE the fence, joined with "; ". bufio.ErrTooLong
+// truncates the file, and an "unclosed" fence is its symptom: announcing the
+// symptom first, or alone, sends the reader hunting for a backtick that
+// exists. A7 reported the fence before consulting the scanner error.
+// (defect D1)
+func TestDecisionsReportTheReadBeforeTheFence(t *testing.T) {
+	dir := t.TempDir()
+	huge := strings.Repeat("x", 8*1024*1024+1)
+	body := "## D1 · gigante\n\n**Status:** pendente\n\n```sh\n" + huge + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, errStr := decisions(dir, "lifely-028", time.Now(), true)
+	readAt := strings.Index(errStr, "too long")
+	fenceAt := strings.Index(errStr, "never closed")
+	if readAt < 0 {
+		t.Fatalf("the read failure vanished behind the fence: %q", errStr)
+	}
+	if fenceAt < 0 {
+		t.Fatalf("the unclosed fence was not reported: %q", errStr)
+	}
+	if readAt > fenceAt {
+		t.Errorf("the fence is announced before the read failure that caused it: %q", errStr)
+	}
+	if !strings.Contains(errStr, "; ") {
+		t.Errorf("the two failures are not joined with %q: %q", "; ", errStr)
+	}
+}
+
+// A7's fence guard, direction one: fenced markdown is content, never
+// structure -- a `## Dx` inside a snippet must not open a block, a fenced
+// `**Status:**` must not decide the real one, and the snippet still travels
+// whole inside the body, because the block is the founder's decision surface.
+// (defect D3: A7 had no fence test in either direction)
+func TestDecisionsFenceIsContentNotStructure(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · real\n\n**Status:** pendente\n\n```markdown\n## D9 · exemplo\n**Status:** decidido\n```\n\n**Decisão:** —\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, errStr := decisions(dir, "lifely-028", time.Now(), true)
+	if errStr != "" {
+		t.Fatalf("decisions() reported %q", errStr)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d decisions, want 1 -- the fenced example was read as structure", len(got))
+	}
+	if !strings.Contains(got[0].Detail, "## D9 · exemplo") {
+		t.Errorf("the fenced snippet did not travel whole in the body: %q", got[0].Detail)
+	}
+}
+
+// A7's fence guard, direction two: a fence that never closes is a FINDING,
+// never silence -- everything after it stopped being read as structure, and
+// the founder's queue must say so. (defect D3)
+func TestDecisionsUnclosedFenceIsAFinding(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · real\n\n**Status:** pendente\n\n```sh\n# nunca fecha\n\n## D2 · perdida\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, errStr := decisions(dir, "lifely-028", time.Now(), true)
+	if !strings.Contains(errStr, "never closed") {
+		t.Errorf("an unclosed fence in the decision queue was not reported: %q", errStr)
+	}
+	if len(got) != 1 {
+		t.Errorf("got %d decisions, want 1 -- the block read before the fence must survive", len(got))
+	}
+}
+
+// An unclosed fence in decisoes.md marks the source and stops there: D1 must
+// not carry D2's whole block as its own decision surface. Past the fence that
+// never closed nothing belongs to anything -- every remaining line arrives
+// Fenced only because structure stopped being read. The carve-out existed in
+// founderBoard for one round before it existed here, which is the half-copied
+// guard this whole ticket is about. (gate finding
+// `decisions-unclosed-fence-detail-bloat`)
+func TestUnclosedFenceDoesNotBleedAcrossDecisions(t *testing.T) {
+	dir := t.TempDir()
+	body := "## D1 · real\n\n**Status:** pendente\n\n```sh\n# nunca fecha\n\n## D2 · outra\n\n**Status:** pendente\n"
+	if err := os.WriteFile(filepath.Join(dir, "decisoes.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := decisions(dir, "lifely-028", time.Now(), true)
+	if len(got) == 0 {
+		t.Fatalf("no decision came back at all")
+	}
+	for _, p := range got {
+		if strings.Contains(p.Detail, "D2 · outra") {
+			t.Errorf("decision %q swallowed the next block: %q", p.Title, p.Detail)
+		}
 	}
 }

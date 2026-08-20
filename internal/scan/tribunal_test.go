@@ -460,6 +460,90 @@ func TestFencedCodeBlockDoesNotCloseTheLane(t *testing.T) {
 	}
 }
 
+// A `## Pendencias` inside a fenced example is content, never a carried-over
+// section: carriesForward matched the whole body as one string, so a clean
+// round whose summary SHOWS the template read as carrying work forward.
+// (defect D4)
+func TestFencedPendencyHeadingDoesNotCarryForward(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "sessions", "2026-08-19", "summary.md"),
+		"# Sessao\n\n## Entregue\n\ntudo fechado.\n\n```markdown\n## Pendencias\n\nexemplo de template.\n```\n")
+	if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 0 {
+		t.Errorf("a fenced example heading produced %d pendencies, want 0", len(got))
+	}
+}
+
+// A '#' without a space after it is a hashtag, not a heading: '#tag' must not
+// open a section, and '# Tag' must. life.md read '#tag' as a heading and the
+// hashtag contaminated the locator of every marker below it. (defect D6)
+func TestHashWithoutSpaceIsNotASection(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "life.md"),
+		"## Secao real\n\n#tag\n\n[ABERTO] pergunta aberta\n")
+	got := find(Tribunal(root).Pendencies, "A6")
+	if len(got) != 1 {
+		t.Fatalf("got %d markers, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Origin.Locator, "Secao real") {
+		t.Errorf("locator = %q: the hashtag stole the section", got[0].Origin.Locator)
+	}
+
+	write(t, filepath.Join(root, "life.md"), "# Tag\n\n[ABERTO] pergunta aberta\n")
+	got = find(Tribunal(root).Pendencies, "A6")
+	if len(got) != 1 {
+		t.Fatalf("got %d markers, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Origin.Locator, "Tag") {
+		t.Errorf("locator = %q: a real heading did not open its section", got[0].Origin.Locator)
+	}
+}
+
+// A fenced snippet nested under a board item is part of that item's Detail.
+// Inside a fence the line is CONTENT: the guard exists to stop it becoming
+// structure, never to swallow it -- A1 dropped these lines while A7 declared
+// the opposite rule for the same guard, two copies each sure of itself.
+// (defect D2)
+func TestFencedSnippetStaysInTheItemDetail(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Com snippet**\n  contexto\n```sh\nject start lifely-028\n```\n  depois\n")
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 1 {
+		t.Fatalf("got %d items, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Detail, "ject start lifely-028") {
+		t.Errorf("the fenced command was dropped from the Detail: %q", got[0].Detail)
+	}
+	if !strings.Contains(got[0].Detail, "depois") {
+		t.Errorf("the prose after the fence was dropped from the Detail: %q", got[0].Detail)
+	}
+}
+
+// Every CommonMark list marker is swept, and the marker never leaks into the
+// identity: the same title keeps the same id whichever marker wrote it. Items
+// written with '*' or '+' used to vanish with no count, no Err and no Note --
+// an invisible item on the founder's own board. (defect D5)
+func TestEveryListMarkerIsSweptWithTheSameIdentity(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Um**\n* [ ] **Dois**\n+ [ ] **Tres**\n")
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 3 {
+		t.Fatalf("swept %d items, want 3 -- a marker variant vanished from the board", len(got))
+	}
+
+	write(t, filepath.Join(root, "FOUNDER.md"), "## Faixa 1\n\n- [ ] **Mesma tarefa**\n")
+	dash := find(Tribunal(root).Pendencies, "A1")
+	write(t, filepath.Join(root, "FOUNDER.md"), "## Faixa 1\n\n* [ ] **Mesma tarefa**\n")
+	star := find(Tribunal(root).Pendencies, "A1")
+	if len(dash) != 1 || len(star) != 1 {
+		t.Fatalf("got %d then %d items, want 1 each", len(dash), len(star))
+	}
+	if dash[0].ID != star[0].ID {
+		t.Errorf("rewriting the marker moved the identity: %q became %q", dash[0].ID, star[0].ID)
+	}
+}
+
 // An unbalanced code fence must be a FINDING, never silence. The fence guard
 // skips everything between fences, so a fence that never closes swallowed the
 // rest of the founder's board with nothing on screen to say so.
@@ -477,5 +561,45 @@ func TestUnbalancedFenceIsReported(t *testing.T) {
 	}
 	if !marked {
 		t.Error("the board was truncated by an unbalanced fence and nothing said so")
+	}
+}
+
+// The snippet survives the blank line a board actually writes. The rule that
+// keeps fenced content in the item's Detail used to hold only when the fence
+// ABUTTED the item: a blank line closed the item through the default arm, and
+// every fenced line after it was dropped for having no item to belong to. The
+// spelling below -- item, blank line, fence -- is the normal one, so AC002 was
+// green in the only spelling that worked. (defect D2, gate finding
+// `founderboard-blank-line-drops-fenced-snippet`)
+func TestFencedSnippetSurvivesABlankLineAfterTheItem(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Com snippet**\n\n```sh\nject start lifely-028\n```\n")
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) != 1 {
+		t.Fatalf("got %d items, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Detail, "ject start lifely-028") {
+		t.Errorf("a blank line between the item and its fence dropped the command: %q", got[0].Detail)
+	}
+}
+
+// An unclosed fence marks the source and stops there: it must not hand the
+// last open item a Detail containing the rest of the board. Past the fence
+// that never closed nothing is nested under anything -- every remaining line
+// arrives Fenced only because the structure stopped being read. (gate finding
+// `founderboard-unclosed-fence-detail-bloat`)
+func TestUnclosedFenceDoesNotSwallowTheRestOfTheBoard(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "FOUNDER.md"),
+		"## Faixa 1\n\n- [ ] **Item A**\n\n```sh\ncmd\n\n## Faixa 3\n\n- [ ] **Item B**\n")
+	got := find(Tribunal(root).Pendencies, "A1")
+	if len(got) == 0 {
+		t.Fatalf("the board lost every item")
+	}
+	for _, p := range got {
+		if strings.Contains(p.Detail, "Item B") || strings.Contains(p.Detail, "Faixa 3") {
+			t.Errorf("item %q swallowed the rest of the board: %q", p.Title, p.Detail)
+		}
 	}
 }
