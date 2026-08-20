@@ -835,3 +835,65 @@ func TestFenceCopiesIgnoresAnUnrelatedConstant(t *testing.T) {
 		t.Fatalf("want an unrelated constant left alone, got %v", copies)
 	}
 }
+
+// TestFenceCopiesRejectsAFieldHeldFlag closes the bypass the gate measured by
+// running the lint: a machine that keeps its state in a struct field is the
+// same machine.
+func TestFenceCopiesRejectsAFieldHeldFlag(t *testing.T) {
+	src := "package fixture\n\n" +
+		"import \"strings\"\n\n" +
+		"// mdScanner walks a markdown file.\n" +
+		"type mdScanner struct {\n" +
+		"\tinFence bool\n" +
+		"}\n\n" +
+		"// scan walks lines and skips the fenced ones.\n" +
+		"func (s *mdScanner) scan(lines []string) int {\n" +
+		"\tn := 0\n" +
+		"\tfor _, line := range lines {\n" +
+		"\t\tif strings.HasPrefix(strings.TrimSpace(line), \"```\") {\n" +
+		"\t\t\ts.inFence = !s.inFence\n" +
+		"\t\t\tcontinue\n" +
+		"\t\t}\n" +
+		"\t\tif s.inFence {\n" +
+		"\t\t\tcontinue\n" +
+		"\t\t}\n" +
+		"\t\tn++\n" +
+		"\t}\n" +
+		"\treturn n\n" +
+		"}\n"
+	root := writeTree(t, map[string]string{"internal/scan/x.go": src})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 1 {
+		t.Fatalf("want the field-held machine reported, got %d: %v", len(copies), copies)
+	}
+}
+
+// TestFenceCopiesIgnoresANegationOfSomethingElse pins the other edge: negating
+// a DIFFERENT value is an ordinary assignment, not a toggle.
+func TestFenceCopiesIgnoresANegationOfSomethingElse(t *testing.T) {
+	src := "package fixture\n\n" +
+		"import \"strings\"\n\n" +
+		"// classify says whether a line opens a fence and whether it is plain.\n" +
+		"func classify(lines []string) bool {\n" +
+		"\tfenced := false\n" +
+		"\tplain := false\n" +
+		"\tfor _, line := range lines {\n" +
+		"\t\tif strings.HasPrefix(line, \"```\") {\n" +
+		"\t\t\tfenced = true\n" +
+		"\t\t}\n" +
+		"\t\tplain = !fenced\n" +
+		"\t}\n" +
+		"\treturn plain\n" +
+		"}\n"
+	root := writeTree(t, map[string]string{"internal/scan/classify.go": src})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 0 {
+		t.Fatalf("want a negation of another value left alone, got %v", copies)
+	}
+}

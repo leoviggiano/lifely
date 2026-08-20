@@ -41,6 +41,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io"
 	"os"
 	"path/filepath"
@@ -569,23 +570,27 @@ func literalValue(lit *ast.BasicLit) string {
 	return lit.Value
 }
 
-// selfNegation returns the position of an assignment that flips a boolean onto
+// selfNegation returns the position of an assignment that flips a value onto
 // itself (`x = !x`) -- the shape every copy of the fence machine wrote, because
 // a fence alternates. Anything else comes back as no position.
+//
+// The two sides are compared as WRITTEN, not by node type. Requiring an
+// identifier on the left let a machine that keeps its flag in a struct field
+// (`s.inFence = !s.inFence`) walk straight past the check -- measured by the
+// gate, which ran the built lint against both spellings of the same machine and
+// got exit 0 and exit 1 (finding `fence-lint-field-bypass`, run 01M0EFH2F9).
+// The defect there was tying the rule to the SHAPE of the lvalue instead of to
+// the relation, so the fix answers for the class: field, nested field and
+// indexed element are all one comparison.
 func selfNegation(as *ast.AssignStmt) token.Pos {
 	if as.Tok != token.ASSIGN || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
-		return token.NoPos
-	}
-	target, ok := as.Lhs[0].(*ast.Ident)
-	if !ok {
 		return token.NoPos
 	}
 	unary, ok := as.Rhs[0].(*ast.UnaryExpr)
 	if !ok || unary.Op != token.NOT {
 		return token.NoPos
 	}
-	operand, ok := unary.X.(*ast.Ident)
-	if !ok || operand.Name != target.Name {
+	if types.ExprString(as.Lhs[0]) != types.ExprString(unary.X) {
 		return token.NoPos
 	}
 	return as.Pos()

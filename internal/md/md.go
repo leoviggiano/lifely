@@ -53,7 +53,14 @@ type Line struct {
 
 	Checked bool   // Item only: true for [x] or [X], false for [ ]
 	Text    string // Item only: the text after the checkbox
-	Indent  string // Item only: the leading whitespace, which nesting reads
+	// Indent is the item's leading whitespace, preserved so a consumer can
+	// read nesting from it. No consumer does today: founderBoard decides
+	// continuation from the RAW line, a rule that has to answer for every
+	// kind of line and not just Item. Said plainly because the claim used to
+	// name a reader that does not exist, and a field whose doc invents its
+	// own consumer is the same defect class as a doc comment on the wrong
+	// symbol (gate finding `md-line-indent-unused`, run 01M0EFH2F9).
+	Indent string
 }
 
 // Doc is one whole markdown file, read once.
