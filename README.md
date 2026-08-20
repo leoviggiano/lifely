@@ -119,6 +119,11 @@ ou variável de pacote (o nome é procurado no diretório inteiro, que é o alca
 de um pacote em Go): ler só o literal deixava a cópia a um refactor de ficar
 invisível.
 
+Nenhuma das duas checagens lê diretório que o `go build ./...` já deixa de fora
+pelo nome — apontar o lint diretamente PARA um deles, porém, é pedido explícito
+e é lido. O `cmd/doclint` enumera quais nomes são esses e diz qual exclusão do
+`./...` a varredura ainda não sabe ver.
+
 ## Onde mora a verdade
 
 A spec é `lifely-001` no vault do ject
