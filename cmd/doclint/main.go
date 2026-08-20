@@ -405,10 +405,10 @@ const fenceDelimiter = "```"
 // code is a lint, and the gate raised that same objection three times.
 //
 // The signature it looks for is the machine's two inseparable halves, in one
-// function: a string literal carrying the fence delimiter, and a boolean that
-// flips on itself. Both, or nothing. Test fixtures across internal/scan hold
-// fenced markdown as data and would be false positives under a rule that only
-// read the literal; a bool that toggles for any other reason is nobody's fence.
+// function: the fence delimiter, and a boolean that flips on itself. Both, or
+// nothing. Test fixtures across internal/scan hold fenced markdown as data and
+// would be false positives under a rule that took the delimiter alone as
+// proof; a bool that toggles for any other reason is nobody's fence.
 // A lint that rejects correct code is worse than no lint, and this one is wired
 // into commands.lint with no suppression directive.
 // The delimiter counts whether it is written inline or hoisted to a package
