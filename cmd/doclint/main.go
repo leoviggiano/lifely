@@ -19,20 +19,27 @@
 // The class it kills: something slipped between a doc comment and the symbol
 // it documents -- a function above a declaration, a member above the constant
 // it names inside a const(...)/var(...)/type(...) block, or a field inserted
-// above the struct field or interface method it describes (docUnits says how
-// each is reached). Invisible to the compiler, to every test, and to a quick
-// read -- five instances in one night, two from a merge and three from my own
-// edits.
+// above the struct field or interface method it describes, where that field
+// or method is declared in a `type` (docUnits says how each is reached).
+// Invisible to the compiler, to every test, and to a quick read -- five
+// instances in one night, two from a merge and three from my own edits.
 //
 // What it does NOT reach, said plainly so the claim above stays honest:
 // import declarations (an aliased import does bind a name, but reaching it
 // means teaching the file-wide index about aliases too -- a surface of its
-// own; docUnits says why it stays out), and declarations inside function
-// bodies (only the file's top-level declarations are walked). A comment above
-// `const (` itself IS examined, but it owns every name in the block at once --
-// Go convention says it documents the GROUP -- so a member slipping in under
-// it is not a misplacement here; it is still flagged when its first word names
-// a symbol declared somewhere else in the file.
+// own; docUnits says why it stays out), declarations inside function bodies
+// (only the file's top-level declarations are walked), and the fields of a
+// struct or interface that is written somewhere other than a type spec --
+// an anonymous struct given to a `var`, or one spelled into a function
+// signature. fieldUnits is called from *ast.TypeSpec alone, so the very
+// displacement this lint catches under `type` goes unreported under `var`
+// (measured, not assumed). That last one is a gap rather than a decision,
+// unlike the two before it; lifely-032 carries the coverage half.
+//
+// A comment above `const (` itself IS examined, but it owns every name in the
+// block at once -- Go convention says it documents the GROUP -- so a member
+// slipping in under it is not a misplacement here; it is still flagged when
+// its first word names a symbol declared somewhere else in the file.
 //
 // Neither check reads source the Go tool itself ignores: the walk skips any
 // directory whose name starts with '.' or '_' (skipIfHidden says why, and why

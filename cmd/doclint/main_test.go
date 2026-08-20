@@ -570,6 +570,55 @@ type Origin struct {
 	}
 }
 
+// TestFieldReachStopsAtTheTypeSpec measures the boundary the package doc
+// claims: fieldUnits is called from *ast.TypeSpec alone, so the displacement
+// TestRunExitsOneOnInsertedStructField catches under `type` -- the same source,
+// the same comment, the same inserted sibling -- goes unreported when the
+// struct is written anywhere else. This test exists so the doc's "measured,
+// not assumed" stays measured; lifely-032 carries the coverage half, and when
+// it lands this test is what says so.
+func TestFieldReachStopsAtTheTypeSpec(t *testing.T) {
+	unreached := []fixture{
+		{
+			name: "anonymous struct given to a var",
+			src: `package fixture
+
+// Origin points back at where the pendency was read from.
+var Origin = struct {
+	// Path is the file the item came from.
+	Kind string
+	Path string
+}{}
+`,
+		},
+		{
+			name: "anonymous struct spelled into a function signature",
+			src: `package fixture
+
+// Read hands back where the pendency was read from.
+func Read() (out struct {
+	// Path is the file the item came from.
+	Kind string
+	Path string
+}) {
+	return out
+}
+`,
+		},
+	}
+	for _, f := range unreached {
+		t.Run(f.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if code := run([]string{writeFixture(t, f.src)}, &stderr); code != 0 {
+				t.Fatalf("the doc calls this reach a gap, but doclint exited %d: %s", code, stderr.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("want silence, got %q", stderr.String())
+			}
+		})
+	}
+}
+
 // TestRunExitsZeroWhenClean pins the other half of the exit contract: a clean
 // tree must return 0 and say nothing.
 func TestRunExitsZeroWhenClean(t *testing.T) {
