@@ -33,6 +33,10 @@
 // Go convention says it documents the GROUP -- so a member slipping in under
 // it is not a misplacement here; it is still flagged when its first word names
 // a symbol declared somewhere else in the file.
+//
+// Neither check reads source the Go tool itself ignores: the walk skips any
+// directory whose name starts with '.' or '_' (skipIfHidden says why, and why
+// the root the lint is pointed AT is the exception).
 package main
 
 import (
