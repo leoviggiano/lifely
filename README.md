@@ -9,11 +9,13 @@ dele.
 
 > **Estado hoje:** o quadro sai por `lifely scan`, no terminal. O servidor
 > HTTP responde `/healthz` e a **API de leitura** (`/api/pendencies`,
-> `/api/pendencies/{id}`, `/api/sources`, `/api/projects`), com spec OpenAPI
-> gerada em `/swagger/openapi.json`. Não há **nenhuma tela**: o pacote `web/`
-> existe no repositório e **nenhum código o importa** — nada é embutido no
-> binário e nenhuma rota serve arquivo. O parágrafo
-> acima descreve o produto da spec do `lifely-001`, não o que já está de pé.
+> `/api/pendencies/{id}`, `/api/sources`, `/api/projects`, `/api/sonar`), com
+> spec OpenAPI gerada em `/swagger/openapi.json`. Existe **uma** tela: o
+> **feed do sonar** em `/sonar` (`lifely-018`), a primeira coisa que o binário
+> serve a partir do `web/` embutido. As **oito telas da FR4** (Mesa, Menu,
+> Projeto, Ticket, Fonte, Detalhe, Despacho, Vazio) ainda não existem, e `/`
+> segue sem rota **de propósito** — a raiz é da Mesa. O parágrafo acima
+> descreve o produto da spec do `lifely-001`, não o que já está de pé.
 
 Duas coisas que ele nunca faz: **dar veredito de [DIREÇÃO]** (quem grava é a
 superfície dona, com o fundador no meio) e **guardar estado de domínio** — a
@@ -63,6 +65,36 @@ ser seu, e o fecho da sessão não o derruba mais.
 O `/tribunal` sobe o painel no início da sessão e o derruba no fim — mas
 **só derruba a instância que ele mesmo subiu** (`stop --owner tribunal`).
 Servidor iniciado à mão sobrevive ao fecho da sessão.
+
+## Feed do sonar
+
+`http://127.0.0.1:7777/sonar` mostra a **história dos eventos da frota**: o
+que o plantão do tribunal escreveu em `<root>/medicao/sonar.log`, mais recente
+no topo, atualizando sozinho a cada ~3s. O mesmo feed em JSON sai por
+`GET /api/sonar?project=<slug>&limit=<n>`.
+
+Três coisas que a tela promete e são requisito, não estilo:
+
+- **O lifely nunca escreve nesse log.** O pacote que o lê não tem caminho de
+  escrita, e há um teste que anda a árvore sintática do pacote para manter
+  isso verdade — a mesma classe da FR15, lida na direção oposta.
+- **Linha que o parser não entende aparece crua**, marcada de vermelho, nunca
+  descartada em silêncio. O log já mudou de formato uma vez (carimbo com e sem
+  segundos, três formas de qualificador) e vai mudar de novo.
+- **A idade do dado é visível.** Acima de 20 minutos — o dobro da cadência do
+  sonar — o feed diz que o sonar está frio. Carimbo velho na tela é alarme por
+  si só; barra que envelhece em silêncio mente.
+
+O filtro por projeto casa o slug no texto da linha, porque o log declara o
+projeto estruturalmente só em `portao` e `notify` e a notícia de verdade está
+na prosa. As **opções** do filtro, ao contrário, saem só do que o log declara:
+um falso positivo mostra uma linha a mais, mas uma opção falsa é um botão que
+mente.
+
+Sem toolchain de JS (FR4.11): o template e o CSS são embutidos com `embed`, e
+a atualização é `fetch` de um fragmento renderizado pelo **mesmo** template
+Go que pintou a primeira tela — um renderizador só, para que a primeira
+pintura e o que a substitui não possam discordar.
 
 ## Varrer sem o painel
 
