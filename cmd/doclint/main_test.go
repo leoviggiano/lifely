@@ -12,9 +12,14 @@ import (
 
 // fixture is one synthetic Go file plus what doclint must conclude about it.
 //
-// The fixtures are written to a temp directory instead of testdata because
-// doclint walks the repository it lives in: a deliberately wrong doc comment
-// stored as a .go file would fail the repository's own lint run.
+// The fixtures are written to a temp directory rather than to testdata. The
+// original reason was that doclint walked testdata too, so a deliberately wrong
+// doc comment stored there failed the repository's own lint run -- that stopped
+// being true in lifely-033, which taught the walk to skip it. What keeps them
+// here is the reason that outlived it: several tests assert on the SHAPE of the
+// tree around a file -- which directory it sits in, where the module root is,
+// what the walk was pointed at -- and a tree written per test can hold that,
+// while one fixed testdata layout cannot.
 type fixture struct {
 	name string
 	src  string
@@ -1050,3 +1055,84 @@ func TestCheckReadsADotDirectoryPointedAtOnPurpose(t *testing.T) {
 		t.Fatalf("want the directory aimed at to be read, got %d: %v", len(copies), copies)
 	}
 }
+
+// TestFenceCopiesSkipsTestdataAndVendor covers the two names the go tool
+// ignores by NAME rather than by prefix. `go help packages` states both: a
+// directory named testdata is ignored, and since Go 1.9 the ... pattern never
+// matches inside vendor. The prefix rule alone let a fixture holding the fence
+// machine be reported in a directory `go build ./...` does not compile --
+// measured on this tree before the fix, and the reason main_test.go writes its
+// own fixtures to a temp dir.
+//
+// The control is in the SAME tree, not a separate test: an ordinary directory
+// holding the identical source must still be reported. A silence assertion
+// whose instrument is dead passes for the wrong reason.
+func TestFenceCopiesSkipsTestdataAndVendor(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"internal/scan/testdata/fence_fixture.go": fenceMachineSource,
+		"vendor/example.com/dep/scan.go":          fenceMachineSource,
+		"internal/scan/tribunal.go":               fenceMachineSource,
+	})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 1 {
+		t.Fatalf("want only the ordinary directory reported, got %d: %v", len(copies), copies)
+	}
+	if want := filepath.Join("internal", "scan", "tribunal.go"); !strings.Contains(copies[0], want) {
+		t.Fatalf("want the control %s reported, got %v", want, copies[0])
+	}
+}
+
+// TestCheckSkipsTestdataAndVendor is the same boundary for the other check.
+// The two share skipIgnoredDir, and this is what proves the sharing is real
+// rather than a copy that drifted: the doc check reads with a different parse
+// mode and reports a different defect.
+func TestCheckSkipsTestdataAndVendor(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"internal/scan/testdata/displaced.go": displacedDocSource,
+		"vendor/example.com/dep/displaced.go": displacedDocSource,
+		"internal/scan/displaced.go":          displacedDocSource,
+	})
+	problems, err := check(root)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if len(problems) != 1 {
+		t.Fatalf("want only the ordinary directory reported, got %d: %v", len(problems), problems)
+	}
+	if want := filepath.Join("internal", "scan", "displaced.go"); !strings.Contains(problems[0], want) {
+		t.Fatalf("want the control %s reported, got %v", want, problems[0])
+	}
+}
+
+// TestCheckReadsAnIgnoredDirectoryPointedAtOnPurpose carries the root exception
+// to BOTH names added here: aiming the lint AT one of them is a request, the
+// same way aiming it at a dot-directory is.
+//
+// Both names, not one: with only testdata covered, an edit that special-cased
+// vendor -- skipping it before the root check ever ran -- would pass a green
+// suite. One name tested is one name guarded.
+func TestCheckReadsAnIgnoredDirectoryPointedAtOnPurpose(t *testing.T) {
+	for _, name := range []string{"testdata", "vendor"} {
+		t.Run(name, func(t *testing.T) {
+			root := writeTree(t, map[string]string{name + "/scan.go": fenceMachineSource})
+			copies, err := fenceCopies(filepath.Join(root, name))
+			if err != nil {
+				t.Fatalf("fenceCopies: %v", err)
+			}
+			if len(copies) != 1 {
+				t.Fatalf("want the directory aimed at to be read, got %d: %v", len(copies), copies)
+			}
+		})
+	}
+}
+
+// displacedDocSource is one doc comment on the wrong symbol -- the defect the
+// first check exists for -- so a silence assertion about check has something
+// real to be silent about.
+const displacedDocSource = "package fixture\n\n" +
+	"// Alpha does the alpha thing.\n" +
+	"func Beta() {}\n\n" +
+	"func Alpha() {}\n"
