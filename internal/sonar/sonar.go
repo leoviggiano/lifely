@@ -209,26 +209,44 @@ func Parse(line string) Event {
 // read as kind or qualifier -- anything this function declines to interpret
 // stays in the message rather than disappearing off the front of it.
 func split(text string) (kind, topic, rest string) {
-	head, rest := cutField(text)
+	head, tail := cutField(text)
 	if head == "" {
 		return "", "", ""
 	}
+
 	trimmed := strings.TrimSuffix(head, ":")
 	if m := qualified.FindStringSubmatch(trimmed); m != nil {
-		return normalise(m[1]), slugOrEmpty(m[2]), rest
+		if slug := slugOrEmpty(m[2]); slug != "" {
+			return normalise(m[1]), slug, tail
+		}
+		// The name is real, the thing in brackets is not one: `custodia(2.5.31):`
+		// is a law citation, `sonar(frota 2):` a note. Declining it used to
+		// drop it from the message along with the kind, which is the same
+		// silent loss the space-separated branch below was written to avoid --
+		// caught by the gate on the second review. Only the name is consumed;
+		// what was declined goes back to the front of the message.
+		return normalise(m[1]), "", joinFields(head[len(m[1]):], tail)
 	}
-	kind = normalise(trimmed)
+
+	// A first word that does not look like a name is not a kind. `-- nota do
+	// plantao` has no kind, and consuming the `--` because it sat in the kind
+	// position would edit the tribunal's line on the way to the screen.
+	kind = slugOrEmpty(head)
+	if kind == "" {
+		return "", "", text
+	}
+
 	// `portao ject:` -- the qualifier is the next word, and it is only read
 	// as one when it ends in a colon AND looks like a name. Reading any
 	// second word as a qualifier would turn `frota runs=5` into topic
 	// "runs=5", and `DESPACHO (2.5.31):` into a project called 2.5.31.
-	second, after := cutField(rest)
+	second, after := cutField(tail)
 	if strings.HasSuffix(second, ":") {
 		if slug := slugOrEmpty(strings.TrimSuffix(second, ":")); slug != "" {
 			return kind, slug, after
 		}
 	}
-	return kind, "", rest
+	return kind, "", tail
 }
 
 // cutField splits the first whitespace-delimited word off a string.
@@ -239,6 +257,19 @@ func cutField(s string) (field, rest string) {
 		return s, ""
 	}
 	return s[:i], strings.TrimLeft(s[i+1:], " \t")
+}
+
+// joinFields puts a declined fragment back in front of the message.
+func joinFields(head, tail string) string {
+	head = strings.TrimSpace(head)
+	switch {
+	case head == "":
+		return tail
+	case tail == "":
+		return head
+	default:
+		return head + " " + tail
+	}
 }
 
 // slugLike is what a qualifier has to look like to be one: a word that starts

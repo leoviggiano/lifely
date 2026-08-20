@@ -91,6 +91,55 @@ func TestParseDoesNotInventAQualifier(t *testing.T) {
 	}
 }
 
+// What split declines to interpret has to stay in the message. The gate's
+// second review (run 01M0FC79HB) found the parenthesised branch dropping it:
+// `custodia(2.5.31):` returned topic "" AND lost `(2.5.31)` from Text, which
+// is the text the screen renders. Every case here is a line the screen would
+// have shown with a piece quietly missing.
+func TestParseNeverEatsWhatItDeclines(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		line  string
+		kind  string
+		topic string
+		text  string
+	}{
+		{
+			"parenthesised law citation, not a project",
+			"2026-08-20T07:00:00 custodia(2.5.31): plantao devolveu a branch",
+			"custodia", "", "(2.5.31): plantao devolveu a branch",
+		},
+		{
+			"parenthesised note with a space in it",
+			"2026-08-20T07:00:00 sonar(frota 2): segunda leva",
+			"", "", "sonar(frota 2): segunda leva",
+		},
+		{
+			"first word is punctuation, so there is no kind",
+			"2026-08-20T07:00:00 -- nota solta do plantao",
+			"", "", "-- nota solta do plantao",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := Parse(tc.line)
+			if !ev.Parsed {
+				t.Fatalf("did not parse: %q", tc.line)
+			}
+			if ev.Kind != tc.kind || ev.Topic != tc.topic {
+				t.Errorf("Kind/Topic = %q/%q, want %q/%q", ev.Kind, ev.Topic, tc.kind, tc.topic)
+			}
+			if ev.Text != tc.text {
+				t.Errorf("Text = %q, want %q", ev.Text, tc.text)
+			}
+			// The whole message, minus only what the columns show, is still
+			// reachable: kind + topic + text accounts for the line.
+			if !strings.HasSuffix(ev.Raw, ev.Text) {
+				t.Errorf("Raw = %q does not end in Text = %q", ev.Raw, ev.Text)
+			}
+		})
+	}
+}
+
 func TestParseKeepsAnUnstampedLineRaw(t *testing.T) {
 	line := "uma linha que o plantao escreveu sem carimbo"
 	ev := Parse(line)
