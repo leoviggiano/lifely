@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.27 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.31 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -99,7 +99,19 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      de código ([DIREÇÃO] do fundador; guia global emendado com
      exemplos EN; bancada segue pt-BR por charter).
      v2.27 · 18-08-2026 — API em Go usa Fuego (padrão da casa por
-     [DIREÇÃO]; caso provado: ject D19, OpenAPI gerado do código). -->
+     [DIREÇÃO]; caso provado: ject D19, OpenAPI gerado do código).
+     v2.28 · 19-08-2026 — um ticket = uma sessão fresca ([DIREÇÃO] do
+     fundador; finish + ject start novo; pacote declarado é a exceção).
+     v2.29 · 19-08-2026 — re-push no mesmo nome é o caminho de volta ao
+     portão (medido; branch nova por rodada re-roda tudo e sai).
+     v2.30 · 19-08-2026 — três consertos apontados pelo portão do megumin
+     (review do run 01M0DPE35S sobre o install v2.29; auto-aplicada,
+     ledger pendente): caminho de descarte de gate-fix alinhado à v2.29
+     (recover --keep-local + re-push no MESMO nome; o texto antigo ainda
+     mandava criar branch nova); "um ticket por conversa" vira ponteiro
+     para a seção v2.28, que absorve a ordem do fecho (duas cópias
+     incompletas da mesma lei); parágrafo do funil de erros ganha linha
+     em branco (lazy continuation que reprovava md-lazy na baseline). -->
 
 ## ject — este repositório é rastreado
 
@@ -136,6 +148,29 @@ cite a fonte e siga sem perguntar. Na dúvida, pergunta.
 
 Não improvise contexto de cabeça: contexto inventado é exatamente o que o ject
 existe para eliminar.
+
+### Um ticket = uma sessão fresca (v2.28; [DIREÇÃO] do fundador, 19-08-2026)
+
+Fecho de ticket termina com o relatório de sessão + `ject session finish`.
+O ticket seguinte **nunca reaproveita a sessão viva**: nasce de um `ject start`
+novo, em sessão fresca, com o contexto mínimo que o vault entrega — specs,
+plano, progresso e histórico do ticket, nada além. Frase do fundador, que é a
+lei: "usa o finish e abre uma nova sessão fresca, com o contexto somente com o
+necessário. Isso deve ser lei para todos os agentes que estão trabalhando nos
+tickets." O motivo é o desenho do próprio ject: contexto acumulado de outro
+ticket é ruído que a memória de sessão existe para substituir — se algo do
+ticket anterior importa, o lugar dele é o relatório/vault, não a janela viva.
+Exceção única: tickets que o dono declarou **um pacote** (mesmo assunto,
+despachados juntos) podem correr na mesma sessão; o pacote fecha com um finish.
+A ordem do fecho é inegociável: **relatório primeiro, `finish` e limpeza
+depois** — limpar antes de escrever perde o que ainda não virou arquivo. E a
+saga de UM ticket (rodadas de portão, fixes) permanece na mesma conversa até
+ele fechar; contexto vem do vault, nunca de sobra de conversa (tese do 15.4).
+**Passo operacional pendente se entrega ao TRIBUNAL pelo canal, nunca ao
+fundador no terminal** (v2.31): ID de sessão, comando de fluxo e fecho são da
+IA (2.5.25) — ao fundador sobe decisão, nunca procedimento (caso-fonte 19-08:
+"`ject session finish <id>` — o próximo passo é seu" impresso no terminal
+dele).
 
 ### Invariantes que nenhum agente quebra
 
@@ -233,7 +268,9 @@ existe para eliminar.
   re-push. Fix do agente frio do gate é commit sem sessão: história perdida.
 - **Commit de gate-fix que contraria decisão registrada da casa ou veredito de
   validação é descartado**, mesmo o help do gate mandando nunca descartar:
-  aborte o run, branch nova, re-push só com os commits da sessão. Não é perda
+  aborte o run, recupere a custódia com descarte (`axi sync --recover
+  --keep-local`) e re-push **no MESMO nome de branch** só com os commits da
+  sessão (v2.29 — nunca branch nova). Não é perda
   de dado — o achado continua na lista do run, e a correção, se procede, é
   refeita na sessão com o contexto do ticket. O "nunca descarte" do gate
   protege contra perder trabalho; aqui o trabalho é o que não deveria existir.
@@ -263,8 +300,12 @@ existe para eliminar.
 - **Lote pequeno**: 2–5 tickets por branch de onda. Lote de uma semana produz
   review de 15 minutos e achados em pilha — o custo do portão é função do
   tamanho do diff, e o tamanho do diff é escolha sua.
-- Branch descartável no portão: nome novo a cada vez, ou apague o ref antigo
-  antes (`git push no-mistakes --delete <branch>`).
+- Voltar ao portão após corrigir: **re-push no MESMO nome de branch** — o
+  gate aceita e roda de novo (medido 19-08: série de 4 runs na mesma
+  branch). Sem commit novo, `no-mistakes rerun`. NUNCA crie branch nova por
+  rodada: cada nome novo re-roda o pipeline inteiro do zero (v2.29;
+  caso-fonte: 4 branches `go-floor-wave-*` porque o delete de ref é negado
+  pela política e a instrução antiga só oferecia essas duas saídas).
 
 ### Regras de trabalho da casa
 
@@ -328,14 +369,9 @@ existe para eliminar.
   MESMO instrumento; (3) falsificador declarado — o número que, ausente,
   REVERTE a mudança pelo registro. Melhoria sem número é hipótese: não
   fecha pauta, não vira "ganho" em relatório. Tendência, nunca meta.
-- **Um ticket por conversa** (18-08, pedido do fundador): ao fechar um
-  ticket — `ject session finish` rodado e relatório ESCRITO — a conversa
-  se encerra ou se limpa (`/clear`); o próximo ticket nasce de
-  `ject start` fresco. A ordem é inegociável: relatório primeiro, limpeza
-  depois — limpar antes de escrever perde o que ainda não virou arquivo.
-  Contexto vem do vault, nunca de sobra de conversa (é a tese do 15.4);
-  a saga de UM ticket (rodadas de portão, fixes) permanece na mesma
-  conversa até ele fechar.
+- **Um ticket por conversa**: a lei completa mora na seção "Um ticket = uma
+  sessão fresca" (v2.28), acima — relatório primeiro, `ject session finish`,
+  e o próximo ticket nasce de `ject start` fresco em conversa nova/limpa.
 - **Mensagem de canal é STATUS, nunca relatório** (18-08; feedback do
   fundador — o texto integral das mensagens renderiza na tela dele):
   corpo longo (relatório, diff, medição) vai a ARQUIVO (relatório de
@@ -367,6 +403,7 @@ existe para eliminar.
   5. **Ordem/estrutura que você supôs foi conferida no arquivo real?**
      Asserção que checa existência mas não posição deixa o corte errado
      passar.
+
   E os erros específicos DESTE projeto moram em `erros-comuns.md` na
   raiz do projeto no vault (v2.22) — consulte-o junto do checklist antes
   de reportar. O funil tem três níveis, cada um mais curto que o
