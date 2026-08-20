@@ -147,7 +147,7 @@ func (p *Panel) clock() time.Time {
 // keeping Events, Total and NewestAt agreeing with one another is one
 // invariant and belongs next to the type that declares them.
 func (p *Panel) readSonar(project string, limit int) sonarRead {
-	feed := sonar.Read(p.sonarPath(), 0, p.clock())
+	feed := sonar.Read(p.sonarPath(), p.clock())
 	// Options come from the WHOLE log, before the filter: narrowing to one
 	// project must never remove the way back to the others.
 	return sonarRead{

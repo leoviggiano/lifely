@@ -66,6 +66,16 @@ const (
 	// ThemeBroken is red: a line this package could not read. It is a
 	// finding, never silence.
 	ThemeBroken Theme = "broken"
+	// ThemeUnknown is muted: the line was read, but its first word is not a
+	// kind, so this package has nothing to say about whose work it is.
+	//
+	// It exists because the alternative was a lie in a colour. Falling back
+	// to ThemeAgent painted `-- nota solta do plantao` as "work an agent did
+	// or reported" -- a claim nothing in the line supports, made in the one
+	// channel spec FR4.10 declares carries meaning. An honest unknown is the
+	// house's own pattern for exactly this (encomenda: "'unknown honesto' e o
+	// padrao da casa").
+	ThemeUnknown Theme = "unknown"
 )
 
 // Event is one line of the log.
@@ -341,6 +351,10 @@ var founderKinds = map[string]bool{
 // themeOf maps a kind onto its palette token.
 func themeOf(kind string) Theme {
 	switch {
+	case kind == "":
+		// split declined to read a kind here. Colour is a claim in this
+		// palette, so the honest answer is to make none.
+		return ThemeUnknown
 	case gateKinds[kind]:
 		return ThemeGate
 	case founderKinds[kind]:
@@ -466,10 +480,16 @@ func Projects(events []Event) []string {
 
 // Read returns the tail of the log at path, newest first.
 //
-// limit of zero or less means every event the tail held. A missing file is
-// not an error: it is a machine where the tribunal has not written yet, and
-// the empty feed says so.
-func Read(path string, limit int, now time.Time) Feed {
+// It reads the whole window and cuts nothing: narrowing is Filter's, which
+// is the only place that knows how to keep Events, Total and NewestAt
+// agreeing. Read used to take a limit of its own, and the gate was right to
+// call it a hazard rather than a bug (run 01M0FEE0SV) -- no caller passed it,
+// and the bookkeeping around it was a second copy of the invariant Filter's
+// own doc says belongs in one place. Two copies agree until they do not.
+//
+// A missing file is not an error: it is a machine where the tribunal has not
+// written yet, and the empty feed says so.
+func Read(path string, now time.Time) Feed {
 	feed := Feed{Path: path, ReadAt: now, Events: []Event{}}
 
 	// os.Open, and only ever os.Open: read-only by construction is this
@@ -520,9 +540,6 @@ func Read(path string, limit int, now time.Time) Feed {
 		feed.Total++
 		if feed.NewestAt.IsZero() && ev.Parsed {
 			feed.NewestAt = ev.At
-		}
-		if limit > 0 && len(feed.Events) >= limit {
-			continue
 		}
 		feed.Events = append(feed.Events, ev)
 	}

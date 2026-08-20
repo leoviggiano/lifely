@@ -170,7 +170,7 @@ func TestParseRejectsAStampShapedNonStamp(t *testing.T) {
 }
 
 func TestReadIsNewestFirstAndDropsNothing(t *testing.T) {
-	feed := Read(fixture, 0, time.Now())
+	feed := Read(fixture, time.Now())
 	if feed.Err != "" {
 		t.Fatalf("Err = %q, want none", feed.Err)
 	}
@@ -219,21 +219,41 @@ func TestReadIsNewestFirstAndDropsNothing(t *testing.T) {
 	}
 }
 
-func TestReadLimitCutsTheFeedButNotTheCount(t *testing.T) {
-	feed := Read(fixture, 2, time.Now())
-	if len(feed.Events) != 2 {
-		t.Fatalf("len(Events) = %d, want 2", len(feed.Events))
+// Read used to take a limit of its own; TestFilterCountsWhatTheLimitHides
+// covers the behaviour now that cutting lives in exactly one place.
+
+// A line the parser read but could not name is painted as an honest unknown,
+// never as somebody's work. The gate raised it (run 01M0FEE0SV): the fallback
+// theme claimed "work an agent did or reported" about `-- nota solta do
+// plantao`, in the one channel spec FR4.10 declares carries meaning.
+func TestKindlessLineIsPaintedUnknownNotAgentWork(t *testing.T) {
+	for _, line := range []string{
+		"2026-08-20T07:00:00 -- nota solta do plantao",
+		"2026-08-20T07:00:00 092 merge parado pelo executor",
+		"2026-08-20T07:00:00 DESPACHO(2.5.31 nota): frente A",
+	} {
+		ev := Parse(line)
+		if !ev.Parsed {
+			t.Fatalf("did not parse: %q", line)
+		}
+		if ev.Kind != "" {
+			t.Fatalf("Kind = %q for %q, want empty -- this test is about the kindless case", ev.Kind, line)
+		}
+		if ev.Theme != ThemeUnknown {
+			t.Errorf("Theme = %q for %q, want %q: colour is a claim, and there is nothing here to claim",
+				ev.Theme, line, ThemeUnknown)
+		}
 	}
-	if feed.Total <= 2 {
-		t.Errorf("Total = %d, want the whole tail's count -- a limit hides events, it does not unmake them", feed.Total)
-	}
-	if feed.NewestAt.IsZero() {
-		t.Error("NewestAt lost to the limit")
+
+	// And a line that DOES name its kind keeps its colour: the unknown is a
+	// fallback, not a flattening.
+	if got := Parse("2026-08-20T07:00:00 DESPACHO (2.5.31): frente A").Theme; got != ThemeFounder {
+		t.Errorf("Theme = %q, want %q", got, ThemeFounder)
 	}
 }
 
 func TestReadOnAMissingLogIsEmptyNotBroken(t *testing.T) {
-	feed := Read(filepath.Join(t.TempDir(), "nope.log"), 0, time.Now())
+	feed := Read(filepath.Join(t.TempDir(), "nope.log"), time.Now())
 	if !feed.Missing {
 		t.Error("Missing = false, want true")
 	}
@@ -256,7 +276,7 @@ func TestReadOnAnUnreadableLogIsAFinding(t *testing.T) {
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	feed := Read(dir, 0, time.Now())
+	feed := Read(dir, time.Now())
 	if feed.Missing {
 		t.Error("Missing = true for a path that exists")
 	}
@@ -332,7 +352,7 @@ func TestReadKeepsTheFirstLineWhenTheTailLandsCleanly(t *testing.T) {
 	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	feed := Read(path, 0, time.Now())
+	feed := Read(path, time.Now())
 	if got, want := len(feed.Events), TailBytes/width; got != want {
 		t.Fatalf("read %d events, want %d -- the tail dropped a whole, readable line", got, want)
 	}
@@ -349,7 +369,7 @@ func TestReadKeepsTheFirstLineWhenTheTailLandsCleanly(t *testing.T) {
 // events" on a log with ten thousand lines omits the rest and looks complete
 // doing it.
 func TestReadSaysWhenItOnlySawTheEndOfTheLog(t *testing.T) {
-	small := Read(fixture, 0, time.Now())
+	small := Read(fixture, time.Now())
 	if small.Windowed {
 		t.Error("Windowed = true for a log smaller than the window")
 	}
@@ -368,7 +388,7 @@ func TestReadSaysWhenItOnlySawTheEndOfTheLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	big := Read(path, 0, time.Now())
+	big := Read(path, time.Now())
 	if !big.Windowed {
 		t.Error("Windowed = false for a log bigger than the window")
 	}
@@ -399,7 +419,7 @@ func TestTailDropsOnlyItsOwnPartialLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	feed := Read(path, 0, time.Now())
+	feed := Read(path, time.Now())
 	if !strings.Contains(feed.Events[0].Raw, "a ultima linha") {
 		t.Errorf("newest event is %q, want the last line of the file", feed.Events[0].Raw)
 	}
@@ -434,7 +454,7 @@ func TestStaleAndAge(t *testing.T) {
 }
 
 func TestMatcherMatchesOnWordBoundaries(t *testing.T) {
-	feed := Read(fixture, 0, time.Now())
+	feed := Read(fixture, time.Now())
 	var despacho, notify Event
 	for _, ev := range feed.Events {
 		if strings.Contains(ev.Raw, "DESPACHO") {

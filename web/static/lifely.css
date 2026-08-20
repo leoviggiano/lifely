@@ -38,6 +38,10 @@ body {
 .theme-agent   { color: var(--lifely-ia); }
 .theme-gate    { color: var(--lifely-gate); }
 .theme-broken  { color: var(--lifely-broken); }
+/* Lido, mas sem tipo declarado: a cor aqui não afirma nada, porque afirmar
+ * "trabalho de IA" numa linha que não diz isso seria mentira no canal que a
+ * FR4.10 reserva para significado. */
+.theme-unknown { color: var(--lifely-muted); }
 
 .topbar h1 {
   font-size: 1.4rem;

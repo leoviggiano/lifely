@@ -142,7 +142,7 @@ func TestReadDoesNotTouchTheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 25; i++ {
-		if feed := Read(path, 0, time.Now()); feed.Err != "" {
+		if feed := Read(path, time.Now()); feed.Err != "" {
 			t.Fatalf("read %d failed: %s", i, feed.Err)
 		}
 	}
@@ -182,7 +182,7 @@ func TestReadWorksOnAReadOnlyFile(t *testing.T) {
 	if err := os.WriteFile(path, src, 0o444); err != nil {
 		t.Fatal(err)
 	}
-	feed := Read(path, 0, time.Now())
+	feed := Read(path, time.Now())
 	if feed.Err != "" {
 		t.Fatalf("Err = %q, want none: a read-only log is exactly what this reader is for", feed.Err)
 	}
