@@ -265,6 +265,92 @@ func TestReadOnAnUnreadableLogIsAFinding(t *testing.T) {
 	}
 }
 
+// The cut is only honest when it actually cut a line. The gate found the
+// first version reporting a cut on size alone (run 01M0FD1G16), so a tail
+// whose boundary landed exactly on a line start threw away a complete,
+// readable event -- the package committing the silent loss it exists to
+// refuse. The cap is a parameter precisely so this boundary is constructible.
+func TestTailCutsOnlyWhenItLandsMidLine(t *testing.T) {
+	// Six 10-byte lines: "aaaaaaaaa\n", "bbbbbbbbb\n", ... 60 bytes total.
+	var b strings.Builder
+	for _, c := range "abcdef" {
+		b.WriteString(strings.Repeat(string(c), 9) + "\n")
+	}
+	data := []byte(b.String())
+	r := strings.NewReader(string(data))
+	size := int64(len(data))
+
+	for _, tc := range []struct {
+		name    string
+		max     int64
+		wantCut bool
+		wantHas string
+	}{
+		// 30 bytes back from 60 is byte 30, and byte 29 is a newline: the
+		// tail starts exactly at "dddddddd". Nothing was cut.
+		{"boundary on a line start", 30, false, "ddddddddd"},
+		// 25 back from 60 is byte 35, mid-way through the "d" line.
+		{"boundary mid-line", 25, true, ""},
+		// A cap bigger than the file cuts nothing at all.
+		{"file smaller than the cap", 1000, false, "aaaaaaaaa"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, cut, err := tail(r, size, tc.max)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cut != tc.wantCut {
+				t.Errorf("cut = %v, want %v (tail begins %q)", cut, tc.wantCut, first(got, 12))
+			}
+			if tc.wantHas != "" && !strings.HasPrefix(string(got), tc.wantHas) {
+				t.Errorf("tail begins %q, want it to begin %q", first(got, 12), tc.wantHas)
+			}
+		})
+	}
+}
+
+// The same boundary through Read, which is where the loss was visible: a
+// complete event at the head of the tail must reach the feed.
+func TestReadKeepsTheFirstLineWhenTheTailLandsCleanly(t *testing.T) {
+	// Lines of exactly 128 bytes, so the 512 KiB boundary (a multiple of 128)
+	// lands on a line start by construction.
+	const width = 128
+	if TailBytes%width != 0 {
+		t.Fatalf("this test's arithmetic assumes TailBytes %% %d == 0", width)
+	}
+	line := func(tag string) string {
+		body := "2026-08-20T07:00:00 frota " + tag + " "
+		return body + strings.Repeat("x", width-1-len(body)) + "\n"
+	}
+	var b strings.Builder
+	// One line more than the cap holds, so exactly one line falls outside.
+	for i := 0; i < TailBytes/width+1; i++ {
+		b.WriteString(line("n" + strconv.Itoa(i)))
+	}
+
+	path := filepath.Join(t.TempDir(), "aligned.log")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	feed := Read(path, 0, time.Now())
+	if got, want := len(feed.Events), TailBytes/width; got != want {
+		t.Fatalf("read %d events, want %d -- the tail dropped a whole, readable line", got, want)
+	}
+	// n0 is the one line legitimately outside the cap; n1 is the first one
+	// inside it and must have survived.
+	oldest := feed.Events[len(feed.Events)-1].Raw
+	if !strings.Contains(oldest, " n1 ") {
+		t.Errorf("oldest event is %q, want the line at the tail's first byte", first([]byte(oldest), 40))
+	}
+}
+
+func first(b []byte, n int) string {
+	if len(b) < n {
+		n = len(b)
+	}
+	return string(b[:n])
+}
+
 func TestTailDropsOnlyItsOwnPartialLine(t *testing.T) {
 	// The cut is ours, so dropping the half-line it produces is honest. The
 	// test proves the SECOND line survives -- an off-by-one here would eat a

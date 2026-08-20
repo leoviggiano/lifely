@@ -473,7 +473,7 @@ func Read(path string, limit int, now time.Time) Feed {
 		return feed
 	}
 
-	data, cut, err := tail(f, info.Size())
+	data, cut, err := tail(f, info.Size(), TailBytes)
 	if err != nil {
 		feed.Err = "the sonar log could not be read: " + err.Error()
 		return feed
@@ -508,17 +508,43 @@ func Read(path string, limit int, now time.Time) Feed {
 	return feed
 }
 
-// tail reads the last TailBytes of an open file, reporting whether it had to
-// cut into a line to do it.
-func tail(r io.ReaderAt, size int64) (data []byte, cut bool, err error) {
-	offset := int64(0)
-	if size > TailBytes {
-		offset, cut = size-TailBytes, true
+// tail reads the last max bytes of an open file, reporting whether it had to
+// cut INTO A LINE to do it.
+//
+// The distinction is the whole function. The first version reported a cut
+// whenever the file was bigger than the cap, and the caller drops the first
+// line of a cut tail -- so a boundary that happened to land exactly on a line
+// start threw away a complete, readable event. That is the silent loss this
+// package exists to refuse, committed by the package itself, and the gate
+// found it (run 01M0FD1G16). A byte is read from BEFORE the offset to answer
+// the question: a newline there means the tail begins at a line start, and
+// nothing has to be dropped.
+//
+// max is a parameter rather than the TailBytes constant so the boundary can
+// be tested at a size a test can construct exactly.
+func tail(r io.ReaderAt, size, max int64) (data []byte, cut bool, err error) {
+	read := func(off int64) ([]byte, error) {
+		buf := make([]byte, size-off)
+		n, err := r.ReadAt(buf, off)
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		return buf[:n], nil
 	}
-	buf := make([]byte, size-offset)
-	n, err := r.ReadAt(buf, offset)
-	if err != nil && err != io.EOF {
-		return nil, cut, err
+
+	if size <= max {
+		data, err = read(0)
+		return data, false, err
 	}
-	return buf[:n], cut, nil
+
+	// One byte before the cut: it is the only thing that can tell a landing
+	// mid-line from a landing on a line start.
+	probe, err := read(size - max - 1)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(probe) == 0 {
+		return probe, false, nil
+	}
+	return probe[1:], probe[0] != '\n', nil
 }
