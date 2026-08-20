@@ -1107,17 +1107,25 @@ func TestCheckSkipsTestdataAndVendor(t *testing.T) {
 	}
 }
 
-// TestCheckReadsATestdataDirectoryPointedAtOnPurpose carries the root exception
-// to the names added here: aiming the lint AT testdata is a request, the same
-// way aiming it at a dot-directory is.
-func TestCheckReadsATestdataDirectoryPointedAtOnPurpose(t *testing.T) {
-	root := writeTree(t, map[string]string{"testdata/scan.go": fenceMachineSource})
-	copies, err := fenceCopies(filepath.Join(root, "testdata"))
-	if err != nil {
-		t.Fatalf("want the directory aimed at to be read: %v", err)
-	}
-	if len(copies) != 1 {
-		t.Fatalf("want the directory aimed at to be read, got %d: %v", len(copies), copies)
+// TestCheckReadsAnIgnoredDirectoryPointedAtOnPurpose carries the root exception
+// to BOTH names added here: aiming the lint AT one of them is a request, the
+// same way aiming it at a dot-directory is.
+//
+// Both names, not one: with only testdata covered, an edit that special-cased
+// vendor -- skipping it before the root check ever ran -- would pass a green
+// suite. One name tested is one name guarded.
+func TestCheckReadsAnIgnoredDirectoryPointedAtOnPurpose(t *testing.T) {
+	for _, name := range []string{"testdata", "vendor"} {
+		t.Run(name, func(t *testing.T) {
+			root := writeTree(t, map[string]string{name + "/scan.go": fenceMachineSource})
+			copies, err := fenceCopies(filepath.Join(root, name))
+			if err != nil {
+				t.Fatalf("fenceCopies: %v", err)
+			}
+			if len(copies) != 1 {
+				t.Fatalf("want the directory aimed at to be read, got %d: %v", len(copies), copies)
+			}
+		})
 	}
 }
 

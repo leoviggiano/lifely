@@ -41,11 +41,12 @@
 // slipping in under it is not a misplacement here; it is still flagged when
 // its first word names a symbol declared somewhere else in the file.
 //
-// Neither check reads a directory the Go tool leaves out of `./...`: the walk
-// skips any whose name starts with '.' or '_', and any named testdata or
-// vendor (skipIgnoredDir says why, and why the root the lint is pointed AT is
-// the exception). Those four rules and no more: the tool also drops files by
-// build constraint, and a walk over directory names cannot see that.
+// Neither check reads a directory the Go tool leaves out of `./...` by NAME:
+// the walk skips any whose name starts with '.' or '_', and any named testdata
+// or vendor (skipIgnoredDir says why, and why the root the lint is pointed AT
+// is the exception). Those four rules and no more -- skipIgnoredDir names both
+// what a directory walk cannot see at all and the one name-visible exclusion
+// still missing, a nested module.
 package main
 
 import (
@@ -656,11 +657,15 @@ func selfNegation(as *ast.AssignStmt) token.Pos {
 // testdata or vendor. Both checks here walk with filepath.WalkDir, which has no
 // such rule, so they used to read files the build never compiles.
 //
-// Those rules and no more, deliberately. The tool ignores plenty this function
-// cannot: files dropped by build constraint, by GOOS/GOARCH suffix, by
-// //go:build. A directory walk reaches none of them, and a claim wider than the
-// code is the exact defect this lint was written to catch -- so the doc
-// enumerates instead of saying "whatever the Go tool ignores".
+// Those rules and no more, and the remainder is worth naming rather than
+// implying. Most of what the tool ignores beyond them is file-level -- files
+// dropped by build constraint, by GOOS/GOARCH suffix, by //go:build -- which a
+// directory walk genuinely cannot see. But one exclusion IS visible by name and
+// is still read here: a nested module, a subdirectory carrying its own go.mod,
+// falls outside the parent module's `./...` and this walk descends into it
+// anyway. That is a gap, not a decision, and it is stated because a claim wider
+// than the code is the exact defect this lint was written to catch. Measured:
+// this tree carries exactly one go.mod, so nothing is misreported today.
 //
 // Measured, and it was not hypothetical: a nested git worktree at
 // .claude/worktrees/ held the pre-consolidation copy of internal/scan, and
