@@ -20,6 +20,24 @@ import (
 // happened not to run; the structural one would still pass if some other
 // package learned to write the log. Together they say what the criterion
 // says: not "it did not write", but "it cannot".
+//
+// ANSWERING THE REVIEW (run 01M0FB7BT4, finding `ast-shape-test`, 2026-08-20):
+// the gate flagged the syntax-tree test as the house's source-content-only
+// anti-pattern and pointed at its two behavioural siblings as the real
+// proofs. The finding is declined, on the ticket's own words: the DoD asks
+// for "escrita no arquivo: inexistente POR CONSTRUCAO -- nenhum caminho do
+// lifely abre o log para escrita". Behaviour can only ever prove "it did not
+// write on the paths the test exercised"; construction is a claim about the
+// paths that exist, and the only instrument that reads those is the source.
+//
+// The reviewer's objection is accepted as a LIMIT rather than as a refutation
+// and is written down here so nobody reads this guard as stronger than it is:
+// a write reached through an interface value, a function variable, or a
+// helper in another package would slip past it. It is not a proof of the
+// universal; it is a tripwire on the realistic regression -- the next edit
+// that reaches for os.OpenFile or a bufio writer because appending "just one
+// marker" seemed harmless. A tripwire that catches the likely case is worth
+// its twenty lines even when it cannot catch the ingenious one.
 
 // writeCalls are the standard-library calls that can create, truncate or
 // otherwise modify a file. os.Open and os.Stat are not here: they are the two
