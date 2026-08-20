@@ -85,8 +85,11 @@ func Tribunal(root string) Result {
 	} {
 		items, state := sweep(root, now)
 		res.Pendencies = append(res.Pendencies, items...)
-		// A source with nothing open is omitted: a "0 pending" line is noise,
-		// and the panel is an index, not an inventory (spec FR1.4).
+		// A source with nothing to say is omitted: a "0 pending" line is
+		// noise, and the panel is an index, not an inventory (spec FR1.4).
+		// WHAT counts as something to say -- open items, a read failure, or a
+		// cut-short Note -- is reportable's, stated in one place because the
+		// ject sweeps ask the same question.
 		if reportable(state) {
 			res.Sources = append(res.Sources, state)
 		}
