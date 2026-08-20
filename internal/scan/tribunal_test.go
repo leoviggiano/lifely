@@ -603,3 +603,30 @@ func TestUnclosedFenceDoesNotSwallowTheRestOfTheBoard(t *testing.T) {
 		}
 	}
 }
+
+// Heading LEVEL is not part of the carried-over marker: `#` through `######`
+// all count, so `### Pendentes` carries a round forward exactly like
+// `## Pendencias`. The substring match this replaced searched for `"## "`,
+// which pinned level 2 by accident of the string it looked for; the accident
+// kept being read back as the rule. (FR7)
+func TestCarriesForwardAtEveryHeadingLevel(t *testing.T) {
+	for _, marker := range []string{"#", "##", "###", "####", "#####", "######"} {
+		root := t.TempDir()
+		write(t, filepath.Join(root, "sessions", "2026-08-19", "summary.md"),
+			"# Sessao\n\n"+marker+" Pendentes\n\nfalta o veredito.\n")
+		if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 1 {
+			t.Errorf("%q Pendentes produced %d pendencies, want 1 -- level leaked into the marker", marker, len(got))
+		}
+	}
+
+	// The level is not a marker on its own: a heading at ANY level that does
+	// not name pending work still closes the round clean.
+	for _, marker := range []string{"#", "##", "###", "####", "#####", "######"} {
+		root := t.TempDir()
+		write(t, filepath.Join(root, "sessions", "2026-08-19", "summary.md"),
+			"# Sessao\n\n"+marker+" Entregue\n\ntudo fechado.\n")
+		if got := find(Tribunal(root).Pendencies, "A3"); len(got) != 0 {
+			t.Errorf("%q Entregue produced %d pendencies, want 0", marker, len(got))
+		}
+	}
+}
