@@ -330,6 +330,45 @@ func TestSonarPageDoesNotWarnAboutAWindowItDidNotUse(t *testing.T) {
 	}
 }
 
+// `?project=` carrying bytes the regexp engine refuses used to panic every
+// surface (the gate stopped it as an error on run 01M0FF44RM: QuoteMeta
+// escapes metacharacters but passes invalid UTF-8 straight through, and
+// MustCompile refuses such a pattern). A filter nobody can satisfy is an
+// empty feed, never a crash.
+func TestSonarSurvivesAnUnreadableProjectFilter(t *testing.T) {
+	h := New(7777, "manual", mustFixture(t))
+	// %FF is a lone 0xFF byte: valid in a URL, not valid UTF-8.
+	for _, path := range []string{"/api/sonar?project=%FF", "/sonar?project=%FF", "/sonar/feed?project=%FF"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = "127.0.0.1:7777"
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200", path, rec.Code)
+		}
+	}
+	_, body := get(t, h, "/api/sonar?project=%FF")
+	if got := len(body["events"].([]any)); got != 0 {
+		t.Errorf("events = %d, want 0: no event can name a slug the engine cannot read", got)
+	}
+	if body["total"].(float64) != 0 {
+		t.Errorf("total = %v, want 0", body["total"])
+	}
+}
+
+// A filter for something the log never declares still has to show as the
+// filter in force. Otherwise the control says `all` over a narrowed feed.
+func TestSonarFilterControlShowsAValueTheLogDoesNotDeclare(t *testing.T) {
+	_, page := html(t, New(7777, "manual", mustFixture(t)), "/sonar?project=lifely-018")
+	if !strings.Contains(page, `<option value="lifely-018" selected>`) {
+		t.Error("the select does not carry the filter in force; it would display `all` over a filtered feed")
+	}
+	// The declared projects are still on offer -- the way back is never gone.
+	if !strings.Contains(page, `<option value="ject"`) {
+		t.Error("the declared projects vanished from the filter")
+	}
+}
+
 func TestStaticAssetsAreServed(t *testing.T) {
 	// web.Assets had no caller at all before this ticket: the embed existed
 	// and nothing read it. This pins that the binary now serves what it

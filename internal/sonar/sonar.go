@@ -383,6 +383,10 @@ type Matcher struct {
 	// re is nil for the empty slug, which keeps everything. A nil regexp is
 	// the whole of that case: no branch elsewhere, no sentinel expression.
 	re *regexp.Regexp
+	// none is a slug the regexp engine refused, which keeps nothing. It is a
+	// separate field and not a nil re because "no filter" and "a filter
+	// nothing can satisfy" are opposite answers.
+	none bool
 }
 
 // NewMatcher builds a matcher for one project slug. The empty slug matches
@@ -390,16 +394,31 @@ type Matcher struct {
 //
 // The expression pins word boundaries by hand instead of using \b: the slugs
 // carry dashes (`no-mistakes`), and \b would fire in the middle of one.
+//
+// It COMPILES rather than MustCompiles, and that is the whole difference
+// between this and the version the gate stopped (run 01M0FF44RM). The slug is
+// the raw `?project=` value; QuoteMeta escapes metacharacters but passes
+// invalid UTF-8 through untouched, and regexp/syntax refuses such a pattern --
+// so `?project=%FF` panicked the handler on all three surfaces. A byte
+// sequence the engine cannot even read is not the name of any project, so the
+// honest answer is a filter that matches nothing, said out loud by the empty
+// state, rather than a crash.
 func NewMatcher(slug string) Matcher {
 	if slug == "" {
 		return Matcher{}
 	}
-	return Matcher{re: regexp.MustCompile(
-		`(?i)(^|[^0-9A-Za-z_])` + regexp.QuoteMeta(slug) + `([^0-9A-Za-z_]|$)`)}
+	re, err := regexp.Compile(`(?i)(^|[^0-9A-Za-z_])` + regexp.QuoteMeta(slug) + `([^0-9A-Za-z_]|$)`)
+	if err != nil {
+		return Matcher{none: true}
+	}
+	return Matcher{re: re}
 }
 
 // Matches reports whether the event names the matcher's project.
 func (m Matcher) Matches(ev Event) bool {
+	if m.none {
+		return false
+	}
 	return m.re == nil || m.re.MatchString(ev.Raw)
 }
 

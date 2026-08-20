@@ -127,6 +127,27 @@ type sonarRead struct {
 	Projects []string
 }
 
+// options are the filter's choices: the projects the log declares, plus the
+// filter in force when it is not one of them.
+//
+// Without that last part the control lied. A URL like `?project=lifely-018`
+// narrows the feed to a value the log never declares, so no <option> carried
+// `selected` and the browser fell back to showing `all` over a feed that was
+// anything but -- the gate caught it (run 01M0FF44RM). A control showing a
+// state that is not the state in force is the same class of quiet wrongness
+// the rest of this screen refuses.
+func (r sonarRead) options(project string) []string {
+	if project == "" {
+		return r.Projects
+	}
+	for _, slug := range r.Projects {
+		if slug == project {
+			return r.Projects
+		}
+	}
+	return append(append([]string{}, r.Projects...), project)
+}
+
 // clock is the panel's time source, falling back to the wall clock so a
 // zero-value Panel still answers.
 func (p *Panel) clock() time.Time {
@@ -207,7 +228,9 @@ func limitParam(raw string) int {
 type sonarView struct {
 	Title string
 	// Project is the filter in force, empty for all.
-	Project  string
+	Project string
+	// Projects are the options the filter offers: what the log declares, plus
+	// Project itself when the URL asked for something the log never named.
 	Projects []string
 	Limit    int
 	Poll     int
@@ -227,7 +250,7 @@ func (p *Panel) sonarView(r *http.Request) sonarView {
 	return sonarView{
 		Title:    "sonar",
 		Project:  project,
-		Projects: read.Projects,
+		Projects: read.options(project),
 		Limit:    limit,
 		Poll:     pollSeconds,
 		Events:   read.Feed.Events,
