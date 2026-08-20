@@ -100,8 +100,14 @@ func run(args []string, stderr io.Writer) int {
 func check(root string) ([]string, error) {
 	var problems []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			return skipIfHidden(root, path, d)
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
 		}
 		fset := token.NewFileSet()
 		file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments)
@@ -436,8 +442,14 @@ func fenceCopies(root string) ([]string, error) {
 		base = found
 	}
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			return skipIfHidden(root, path, d)
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
 		}
 		if ownsTheGuard(base, path) {
 			return nil
@@ -624,6 +636,31 @@ func selfNegation(as *ast.AssignStmt) token.Pos {
 		return token.NoPos
 	}
 	return as.Pos()
+}
+
+// skipIfHidden tells the walk to skip a directory the Go tool itself ignores:
+// one whose name starts with '.' or '_'. Both checks here walk with
+// filepath.WalkDir, which has no such rule, so they used to read files the
+// build never compiles.
+//
+// Measured, and it was not hypothetical: a nested git worktree at
+// .claude/worktrees/ held the pre-consolidation copy of internal/scan, and
+// `go run ./cmd/doclint .` reported three fence guards that `go list ./...`
+// does not even list. A lint that goes red on the developer's tree while the
+// gate stays green -- over source the compiler cannot see -- is the false
+// positive this whole ticket exists to kill.
+//
+// The root itself is never skipped: pointing the lint AT a dot-directory is an
+// explicit request to check it, not an accident of walking past.
+func skipIfHidden(root, path string, d os.DirEntry) error {
+	if path == root {
+		return nil
+	}
+	name := d.Name()
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return filepath.SkipDir
+	}
+	return nil
 }
 
 // contains reports whether needle is one of the names in haystack.

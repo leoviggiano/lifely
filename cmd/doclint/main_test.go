@@ -914,3 +914,60 @@ func TestFenceCopiesExemptionIsMeasuredFromTheModuleRoot(t *testing.T) {
 		t.Fatalf("want the parser exempt whatever the walk root is, got %v", copies)
 	}
 }
+
+// TestChecksSkipDirectoriesTheGoToolIgnores holds the walk's boundary: neither
+// check reads source the compiler cannot see. A nested git worktree under
+// .claude/ made `go run ./cmd/doclint .` report three fence guards in files
+// `go list ./...` does not even list -- the lint red on the developer's tree
+// while the gate stayed green, over code the build ignores.
+func TestChecksSkipDirectoriesTheGoToolIgnores(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		".claude/worktrees/old/scan.go": fenceMachineSource,
+		"_scratch/scan.go":              fenceMachineSource,
+		"internal/scan/clean.go":        "package fixture\n\n// Alpha does the alpha thing.\nfunc Alpha() {}\n",
+	})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 0 {
+		t.Fatalf("the walk read source the Go tool ignores: %v", copies)
+	}
+	problems, err := check(root)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if len(problems) != 0 {
+		t.Fatalf("the doc check read source the Go tool ignores: %v", problems)
+	}
+}
+
+// TestChecksStillReadOrdinaryDirectories is the other direction: the skip must
+// cost nothing outside the names the Go tool itself ignores.
+func TestChecksStillReadOrdinaryDirectories(t *testing.T) {
+	root := writeTree(t, map[string]string{"internal/scan/tribunal.go": fenceMachineSource})
+	copies, err := fenceCopies(root)
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 1 {
+		t.Fatalf("want the ordinary directory still read, got %d: %v", len(copies), copies)
+	}
+}
+
+// TestCheckReadsADotDirectoryPointedAtOnPurpose pins the exception: skipping
+// happens while WALKING PAST, never to the root the caller aimed at.
+func TestCheckReadsADotDirectoryPointedAtOnPurpose(t *testing.T) {
+	root := writeTree(t, map[string]string{".claude/worktrees/old/scan.go": fenceMachineSource})
+	// The root aimed at is itself a dot-directory: that is what exercises the
+	// exception. Aiming one level deeper (".claude/worktrees/old") does NOT --
+	// the walk's first entry is named "old", which no rule would skip, and a
+	// mutation removing the exception survived that spelling.
+	copies, err := fenceCopies(filepath.Join(root, ".claude"))
+	if err != nil {
+		t.Fatalf("fenceCopies: %v", err)
+	}
+	if len(copies) != 1 {
+		t.Fatalf("want the directory aimed at to be read, got %d: %v", len(copies), copies)
+	}
+}
