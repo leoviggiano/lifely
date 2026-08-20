@@ -235,7 +235,8 @@ func founderBoard(root string, now time.Time) ([]pendency.Pendency, SourceState)
 
 // pastUnclosedFence reports whether a line sits at or after the fence that
 // opened and never closed. Everything from there on is content whose structure
-// was never read, so it belongs to no item.
+// was never read, so it belongs to nothing above it -- board item and decision
+// block alike, which is why both consumers ask this one helper.
 func pastUnclosedFence(doc *md.Doc, ln md.Line) bool {
 	return doc.UnclosedFenceAt > 0 && ln.Num >= doc.UnclosedFenceAt
 }
