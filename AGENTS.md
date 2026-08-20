@@ -2,7 +2,7 @@
 
 Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
 
-<!-- ject:house:begin v2.31 — instalado por ~/.claude/scripts/ject-registry.sh install.
+<!-- ject:house:begin v2.32 — instalado por ~/.claude/scripts/ject-registry.sh install.
      Edições dentro do bloco são sobrescritas na reinstalação. A fonte canônica é
      ~/projects/artifacts/templates/ject-repo-section.md (versionada na bancada);
      ~/.claude/cache/ject/repo-section.md é symlink dela — edite na bancada e
@@ -111,7 +111,18 @@ Convenções para qualquer agente (ou pessoa) que mexa neste repositório.
      mandava criar branch nova); "um ticket por conversa" vira ponteiro
      para a seção v2.28, que absorve a ordem do fecho (duas cópias
      incompletas da mesma lei); parágrafo do funil de erros ganha linha
-     em branco (lazy continuation que reprovava md-lazy na baseline). -->
+     em branco (lazy continuation que reprovava md-lazy na baseline).
+     v2.31 · 19-08-2026 — passo operacional pendente se entrega ao TRIBUNAL
+     pelo canal, nunca ao fundador no terminal (2.5.25; caso-fonte: "ject
+     session finish — o próximo passo é seu" impresso no terminal dele).
+     [Nota de proveniência: esta entrada faltou no bump original — o
+     marcador subiu a v2.31 sem linha de changelog; lacuna apontada pelo
+     portão do lifely em 20-08 e corrigida na fonte no mesmo dia.]
+     v2.32 · 20-08-2026 — fecho de ticket verificado passa ao tribunal
+     (2.5.37: done com merge MEDIDO; revoga "done em lote é do fundador"
+     da v2.1); mensagem de canal declara o MODELO do agente (guarda da
+     2.5.36); git fetch antes de decidir por origin/* (origin-ref velho
+     pós-push do portão quase autorizou um apagamento, 20-08). -->
 
 ## ject — este repositório é rastreado
 
@@ -184,12 +195,12 @@ dele).
   `context.md`, e é falsificável: sem AC matável por mutação, não é bug medido.
   Na dúvida, planeja.
 - **Nunca mova ticket para `done` ou `cancelled` por conta própria.** As
-  transições são do fundador **ou da bancada com registro citável** ([DIREÇÃO]
-  13-08, life.md 2.5.19) — e tickets `business-critical` (impacto
-  organizacional, reputação ou performance da empresa) são SEMPRE do fundador.
-  Ao encerrar trabalho, sugira `review` e **siga para o próximo da fila**; o
-  fechamento vem em lote, com `done` só pós-merge. Esperar o `done` nunca
-  bloqueia o desenvolvimento.
+  transições são do fundador **ou do tribunal com evidência medida** ([DIREÇÃO]
+  20-08, life.md 2.5.37: DoD cumprido + merge/publicação medidos → o tribunal
+  fecha sozinho) — e tickets `business-critical` (impacto organizacional,
+  reputação ou performance da empresa) são SEMPRE do fundador.
+  Ao encerrar trabalho, sugira `review` e **siga para o próximo da fila**;
+  esperar o `done` nunca bloqueia o desenvolvimento.
 - **Sessões são append-only.** Ao terminar, escreva o relatório em `sessions/`
   no formato do ject e feche com `ject session finish <session-id>`. Terminar
   sem relatório apaga a memória entre sessões. **O primeiro relatório declara
@@ -357,6 +368,14 @@ dele).
   cinco classes — vai a ele DIRETO, com a fonte citada na pergunta); e
   prompt disparado ao fundador sem resposta por ~10 min → reporte a trava
   ao canal (o prompt fica; a espera deixa de ser invisível ao plantão).
+- **Mensagem de canal declara o MODELO que o agente roda** (v2.32, guarda da
+  lei 2.5.36): relatório/escalação por `SendMessage` abre com a etiqueta do
+  modelo (ex.: `[opus]`) — herança silenciosa de Fable se vê no ato da
+  triagem, não só no token-ledger do fecho.
+- **`git fetch` antes de qualquer decisão baseada em `origin/*`** (v2.32;
+  caso-fonte 20-08: origin-ref velho pós-push do portão quase autorizou um
+  apagamento): ref remota só é evidência depois de `git fetch`/`ls-remote`
+  medido na hora — nunca do estado que o clone lembra.
 - **Ticket nasce inteiro no ato da criação** (18-08, achados do fundador):
   encomenda em `specs/encomenda-fundador.md` quando nasce de
   veredito/encomenda (template `ject-encomenda-ticket.md` v1.1) **e o corpo
